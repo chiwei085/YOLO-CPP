@@ -1,5 +1,6 @@
 #pragma once
 
+#include "yolo/adapters/ultralytics.hpp"
 #include "yolo/core/error.hpp"
 #include "yolo/core/image.hpp"
 #include "yolo/core/model_spec.hpp"

@@ -19,6 +19,9 @@ add_library(yolo_cpp
   src/tasks/segmentation.cpp
   src/tasks/pose.cpp
   src/tasks/obb.cpp
+  src/adapters/ultralytics_detect.cpp
+  src/adapters/ultralytics_classify.cpp
+  src/adapters/ultralytics_seg.cpp
 )
 
 target_compile_features(yolo_cpp PUBLIC cxx_std_20)
