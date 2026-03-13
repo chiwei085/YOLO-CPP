@@ -21,12 +21,13 @@
     },
     {
       "name": "dev",
-      "displayName": "Dev (CPU)",
+      "displayName": "Dev (CPU, shared ORT)",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build/dev",
       "cacheVariables": {
         "YOLO_CPP_ORT_PROVIDER": "cpu",
-        "VCPKG_MANIFEST_FEATURES": "cpu"
+        "VCPKG_MANIFEST_FEATURES": "cpu",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic"
       }
     },
     {
