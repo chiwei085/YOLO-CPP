@@ -8,6 +8,7 @@
 
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
+#include "yolo/detail/task_factory.hpp"
 
 namespace yolo
 {
@@ -145,7 +146,7 @@ class BoundPipeline final : public Pipeline
 public:
     BoundPipeline(PipelineInfo info, SessionOptions session,
                   PipelineOptions options,
-                  std::unique_ptr<detail::RuntimeEngine> raw_engine,
+                  std::shared_ptr<detail::RuntimeEngine> raw_engine,
                   std::unique_ptr<Detector> detector,
                   std::unique_ptr<Classifier> classifier,
                   std::unique_ptr<Segmenter> segmenter,
@@ -189,6 +190,32 @@ public:
     }
 
     RawInferenceResult run_raw(const ImageView& image) const override {
+        if (!raw_engine_) {
+            return RawInferenceResult{
+                .outputs = {},
+                .metadata = InferenceMetadata{.task = info_.model.task},
+                .error = make_error(
+                    ErrorCode::invalid_state,
+                    "Pipeline raw inference is missing a runtime engine.",
+                    ErrorContext{.component = std::string{"pipeline_raw"}}),
+            };
+        }
+
+        if (!info_.preprocess.has_value() || info_.inputs.empty()) {
+            return RawInferenceResult{
+                .outputs = {},
+                .metadata = InferenceMetadata{.task = info_.model.task},
+                .error = make_error(
+                    ErrorCode::invalid_state,
+                    "Pipeline raw inference metadata is incomplete.",
+                    ErrorContext{
+                        .component = std::string{"pipeline_raw"},
+                        .expected = std::string{
+                            "preprocess policy and at least one input"},
+                    }),
+            };
+        }
+
         auto preprocess_result = detail::preprocess_image(
             image, *info_.preprocess, info_.inputs.front().name);
         if (!preprocess_result.ok()) {
@@ -291,7 +318,7 @@ private:
     PipelineInfo info_{};
     SessionOptions session_{};
     PipelineOptions options_{};
-    std::unique_ptr<detail::RuntimeEngine> raw_engine_{};
+    std::shared_ptr<detail::RuntimeEngine> raw_engine_{};
     std::unique_ptr<Detector> detector_{};
     std::unique_ptr<Classifier> classifier_{};
     std::unique_ptr<Segmenter> segmenter_{};
@@ -322,10 +349,13 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
         return {.error = engine_result.error};
     }
 
+    auto shared_engine =
+        std::shared_ptr<detail::RuntimeEngine>(std::move(*engine_result.value));
+
     PipelineInfo info{
         .model = binding.model,
-        .inputs = engine_result.value->get()->description().inputs,
-        .outputs = engine_result.value->get()->description().outputs,
+        .inputs = shared_engine->description().inputs,
+        .outputs = shared_engine->description().outputs,
         .preprocess = binding.preprocess,
         .adapter_binding = binding,
     };
@@ -337,11 +367,12 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
     std::unique_ptr<OrientedDetector> obb_detector{};
 
     if (binding.model.task == TaskKind::detect) {
-        detector = create_detector(binding.model, session, options.detection);
+        detector = detail::create_detector_with_engine(
+            binding.model, session, options.detection, shared_engine);
     }
     else if (binding.model.task == TaskKind::classify) {
-        classifier =
-            create_classifier(binding.model, session, options.classification);
+        classifier = detail::create_classifier_with_engine(
+            binding.model, session, options.classification, shared_engine);
     }
     else if (binding.model.task == TaskKind::seg) {
         segmenter =
@@ -358,7 +389,7 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
     return {
         .value = std::unique_ptr<Pipeline>(new BoundPipeline(
             std::move(info), std::move(session), std::move(options),
-            std::move(*engine_result.value), std::move(detector),
+            std::move(shared_engine), std::move(detector),
             std::move(classifier), std::move(segmenter),
             std::move(pose_estimator), std::move(obb_detector))),
         .error = {},

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(yolo_cpp VERSION 0.1.0 LANGUAGES CXX)
+project(yolo_cpp VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(YOLO_CPP_BUILD_EXAMPLES "Build example executables" ON)

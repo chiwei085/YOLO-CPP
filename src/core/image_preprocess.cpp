@@ -262,9 +262,8 @@ Result<PreprocessedImage> preprocess_image(const ImageView& image,
 
     const std::size_t element_count =
         *preprocessed.tensor.info.shape.element_count();
-    preprocessed.tensor.storage.resize(element_count * sizeof(float));
-    float* tensor =
-        reinterpret_cast<float*>(preprocessed.tensor.storage.data());
+    preprocessed.tensor.values.resize(element_count);
+    float* tensor = preprocessed.tensor.values.data();
 
     const auto write_value = [&](int x, int y, int c, float value) {
         std::size_t index = 0;

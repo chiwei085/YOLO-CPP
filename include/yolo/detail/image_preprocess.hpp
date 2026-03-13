@@ -1,5 +1,8 @@
 #pragma once
 
+#include <span>
+#include <vector>
+
 #include <string_view>
 
 #include "yolo/core/error.hpp"
@@ -9,9 +12,19 @@
 namespace yolo::detail
 {
 
+struct FloatTensor
+{
+    TensorInfo info{};
+    std::vector<float> values{};
+
+    [[nodiscard]] std::span<const std::byte> bytes() const noexcept {
+        return std::as_bytes(std::span<const float>(values));
+    }
+};
+
 struct PreprocessedImage
 {
-    RawTensor tensor{};
+    FloatTensor tensor{};
     PreprocessRecord record{};
 };
 

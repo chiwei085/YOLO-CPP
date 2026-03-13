@@ -1,5 +1,6 @@
 #include "yolo/detail/tensor_utils.hpp"
 
+#include <cstring>
 #include <sstream>
 
 namespace yolo::detail
@@ -32,6 +33,32 @@ std::optional<std::size_t> dense_byte_count(const TensorInfo& info) {
     }
 
     return *element_count * tensor_element_size(info.data_type);
+}
+
+Result<std::vector<float>> copy_float_tensor_data(const RawTensor& tensor,
+                                                  std::string_view component) {
+    if (tensor.info.data_type != TensorDataType::float32) {
+        return {.error = make_type_error(component, tensor.info.name,
+                                         TensorDataType::float32,
+                                         tensor.info.data_type)};
+    }
+
+    if (tensor.storage.size() % sizeof(float) != 0) {
+        return {.error = make_error(
+                    ErrorCode::type_mismatch,
+                    "Tensor byte size is not a multiple of float32 width.",
+                    ErrorContext{
+                        .component = std::string{component},
+                        .output_name = tensor.info.name,
+                    })};
+    }
+
+    std::vector<float> values(tensor.storage.size() / sizeof(float));
+    if (!values.empty()) {
+        std::memcpy(values.data(), tensor.storage.data(), tensor.storage.size());
+    }
+
+    return {.value = std::move(values), .error = {}};
 }
 
 std::string format_shape(const TensorShape& shape) {

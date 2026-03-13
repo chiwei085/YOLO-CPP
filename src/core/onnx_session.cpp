@@ -31,7 +31,7 @@ std::string provider_name(ExecutionProvider provider) {
     return "unknown";
 }
 
-TensorDataType from_ort_type(
+std::string ort_type_name(
 #if YOLO_CPP_HAS_ONNXRUNTIME
     ONNXTensorElementDataType data_type
 #else
@@ -41,31 +41,115 @@ TensorDataType from_ort_type(
 #if YOLO_CPP_HAS_ONNXRUNTIME
     switch (data_type) {
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
-            return TensorDataType::boolean;
+            return "bool";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
-            return TensorDataType::uint8;
+            return "uint8";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
-            return TensorDataType::int8;
+            return "int8";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16:
-            return TensorDataType::int16;
+            return "int16";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
-            return TensorDataType::int32;
+            return "int32";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
-            return TensorDataType::int64;
+            return "int64";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
-            return TensorDataType::float16;
+            return "float16";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
-            return TensorDataType::float32;
+            return "float32";
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE:
-            return TensorDataType::float64;
+            return "float64";
         default:
-            return TensorDataType::float32;
+            return "unsupported";
     }
 #else
     static_cast<void>(data_type);
-    return TensorDataType::float32;
+    return "unsupported";
 #endif
 }
+
+Result<TensorDataType> from_ort_type(
+#if YOLO_CPP_HAS_ONNXRUNTIME
+    ONNXTensorElementDataType data_type, std::string_view tensor_name
+#else
+    int data_type, std::string_view tensor_name
+#endif
+) {
+#if YOLO_CPP_HAS_ONNXRUNTIME
+    switch (data_type) {
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+            return {.value = TensorDataType::boolean, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+            return {.value = TensorDataType::uint8, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+            return {.value = TensorDataType::int8, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16:
+            return {.value = TensorDataType::int16, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+            return {.value = TensorDataType::int32, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+            return {.value = TensorDataType::int64, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
+            return {.value = TensorDataType::float16, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+            return {.value = TensorDataType::float32, .error = {}};
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE:
+            return {.value = TensorDataType::float64, .error = {}};
+        default:
+            return {.error = make_error(
+                        ErrorCode::unsupported_model,
+                        "ONNX Runtime tensor type is not supported.",
+                        ErrorContext{
+                            .component = std::string{"onnx_session"},
+                            .output_name = std::string{tensor_name},
+                            .actual = ort_type_name(data_type),
+                        })};
+    }
+#else
+    static_cast<void>(data_type);
+    static_cast<void>(tensor_name);
+    return {.error = make_error(
+                ErrorCode::backend_error,
+                "ONNX Runtime backend is not available on this build.",
+                ErrorContext{.component = std::string{"onnx_session"}})};
+#endif
+}
+
+#if YOLO_CPP_HAS_ONNXRUNTIME
+Result<ONNXTensorElementDataType> to_ort_type(TensorDataType data_type,
+                                              std::string_view tensor_name) {
+    switch (data_type) {
+        case TensorDataType::boolean:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL, .error = {}};
+        case TensorDataType::uint8:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8, .error = {}};
+        case TensorDataType::int8:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8, .error = {}};
+        case TensorDataType::int16:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16, .error = {}};
+        case TensorDataType::int32:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32, .error = {}};
+        case TensorDataType::int64:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, .error = {}};
+        case TensorDataType::float16:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
+                    .error = {}};
+        case TensorDataType::float32:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, .error = {}};
+        case TensorDataType::float64:
+            return {.value = ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
+                    .error = {}};
+    }
+
+    return {.error = make_error(
+                ErrorCode::unsupported_model,
+                "Tensor element type cannot be mapped to ONNX Runtime.",
+                ErrorContext{
+                    .component = std::string{"onnx_session"},
+                    .input_name = std::string{tensor_name},
+                    .actual = format_data_type(data_type),
+                })};
+}
+#endif
 
 #if YOLO_CPP_HAS_ONNXRUNTIME
 TensorShape make_shape(const std::vector<std::int64_t>& dims) {
@@ -83,9 +167,9 @@ TensorShape make_shape(const std::vector<std::int64_t>& dims) {
     return shape;
 }
 
-TensorInfo make_tensor_info(Ort::Session& session,
-                            Ort::AllocatorWithDefaultOptions& allocator,
-                            std::size_t index, bool input) {
+Result<TensorInfo> make_tensor_info(Ort::Session& session,
+                                    Ort::AllocatorWithDefaultOptions& allocator,
+                                    std::size_t index, bool input) {
     Ort::AllocatedStringPtr name =
         input ? session.GetInputNameAllocated(index, allocator)
               : session.GetOutputNameAllocated(index, allocator);
@@ -93,11 +177,18 @@ TensorInfo make_tensor_info(Ort::Session& session,
                                     : session.GetOutputTypeInfo(index);
     auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
 
-    return TensorInfo{
-        .name = name.get(),
-        .data_type = from_ort_type(tensor_info.GetElementType()),
-        .shape = make_shape(tensor_info.GetShape()),
-    };
+    auto data_type_result = from_ort_type(tensor_info.GetElementType(),
+                                          name.get());
+    if (!data_type_result.ok()) {
+        return {.error = std::move(data_type_result.error)};
+    }
+
+    return {.value = TensorInfo{
+                .name = name.get(),
+                .data_type = *data_type_result.value,
+                .shape = make_shape(tensor_info.GetShape()),
+            },
+            .error = {}};
 }
 
 ::GraphOptimizationLevel to_ort_graph_optimization_level(
@@ -210,11 +301,17 @@ public:
             ort_shape.push_back(*dim.value);
         }
 
+        auto input_type_result =
+            to_ort_type(input.info.data_type, input.info.name);
+        if (!input_type_result.ok()) {
+            return {.error = std::move(input_type_result.error)};
+        }
+
         Ort::Value input_value = Ort::Value::CreateTensor(
             memory_info_,
             const_cast<void*>(static_cast<const void*>(input.bytes.data())),
             input.bytes.size(), ort_shape.data(), ort_shape.size(),
-            static_cast<ONNXTensorElementDataType>(input.info.data_type));
+            *input_type_result.value);
 
         const char* input_name = description_.inputs.front().name.c_str();
         std::vector<const char*> output_names{};
@@ -236,9 +333,14 @@ public:
                 output_value.GetTensorTypeAndShapeInfo();
 
             RawTensor raw_output{};
+            auto output_type_result = from_ort_type(
+                tensor_info.GetElementType(), description_.outputs[i].name);
+            if (!output_type_result.ok()) {
+                return {.error = std::move(output_type_result.error)};
+            }
             raw_output.info = TensorInfo{
                 .name = description_.outputs[i].name,
-                .data_type = from_ort_type(tensor_info.GetElementType()),
+                .data_type = *output_type_result.value,
                 .shape = make_shape(tensor_info.GetShape()),
             };
 
@@ -325,12 +427,18 @@ Result<std::unique_ptr<OnnxSession>> OnnxSession::create(
         description.inputs.reserve(session.GetInputCount());
         description.outputs.reserve(session.GetOutputCount());
         for (std::size_t i = 0; i < session.GetInputCount(); ++i) {
-            description.inputs.push_back(
-                make_tensor_info(session, allocator, i, true));
+            auto info_result = make_tensor_info(session, allocator, i, true);
+            if (!info_result.ok()) {
+                return {.error = std::move(info_result.error)};
+            }
+            description.inputs.push_back(std::move(*info_result.value));
         }
         for (std::size_t i = 0; i < session.GetOutputCount(); ++i) {
-            description.outputs.push_back(
-                make_tensor_info(session, allocator, i, false));
+            auto info_result = make_tensor_info(session, allocator, i, false);
+            if (!info_result.ok()) {
+                return {.error = std::move(info_result.error)};
+            }
+            description.outputs.push_back(std::move(*info_result.value));
         }
 
         Ort::MemoryInfo memory_info =

@@ -34,6 +34,8 @@ using RawOutputTensors = std::vector<RawTensor>;
 [[nodiscard]] std::size_t tensor_element_size(TensorDataType data_type);
 [[nodiscard]] std::optional<std::size_t> dense_byte_count(
     const TensorInfo& info);
+[[nodiscard]] Result<std::vector<float>> copy_float_tensor_data(
+    const RawTensor& tensor, std::string_view component);
 [[nodiscard]] std::string format_shape(const TensorShape& shape);
 [[nodiscard]] std::string format_data_type(TensorDataType data_type);
 [[nodiscard]] Error make_shape_error(std::string_view component,

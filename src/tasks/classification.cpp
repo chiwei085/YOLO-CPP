@@ -94,20 +94,6 @@ Result<Size2i> resolve_input_size(const ModelSpec& spec,
                 })};
 }
 
-Result<std::span<const float>> as_float_tensor(
-    const detail::RawTensor& tensor) {
-    if (tensor.info.data_type != TensorDataType::float32) {
-        return {.error = detail::make_type_error(
-                    "classification_decoder", tensor.info.name,
-                    TensorDataType::float32, tensor.info.data_type)};
-    }
-
-    const float* data = reinterpret_cast<const float*>(tensor.storage.data());
-    return {.value = std::span<const float>(
-                data, tensor.storage.size() / sizeof(float)),
-            .error = {}};
-}
-
 Result<std::vector<float>> decode_classification_scores(
     const detail::RawOutputTensors& outputs) {
     if (outputs.empty()) {
@@ -119,7 +105,8 @@ Result<std::vector<float>> decode_classification_scores(
                                  std::string{"classification_decoder"}})};
     }
 
-    const auto values_result = as_float_tensor(outputs.front());
+    const auto values_result = detail::copy_float_tensor_data(
+        outputs.front(), "classification_decoder");
     if (!values_result.ok()) {
         return {.error = values_result.error};
     }
@@ -151,6 +138,19 @@ Result<std::vector<float>> decode_classification_scores(
                     .expected = std::string{"[C], [1,C], or [1,1,C]"},
                     .actual = detail::format_shape(info.shape),
                 })};
+    }
+
+    if (class_count > values_result.value->size()) {
+        return {.error = make_error(
+                    ErrorCode::shape_mismatch,
+                    "Classification output shape exceeds tensor payload.",
+                    ErrorContext{
+                        .component = std::string{"classification_decoder"},
+                        .output_name = info.name,
+                        .expected = std::to_string(class_count),
+                        .actual =
+                            std::to_string(values_result.value->size()),
+                    })};
     }
 
     return {
@@ -220,10 +220,26 @@ public:
           options_(std::move(options)) {
         auto engine_result = detail::RuntimeEngine::create(spec_, session_);
         if (engine_result.ok()) {
-            engine_ = std::move(*engine_result.value);
+            engine_ = std::shared_ptr<detail::RuntimeEngine>(
+                std::move(*engine_result.value));
         }
         else {
             init_error_ = std::move(engine_result.error);
+        }
+    }
+
+    RuntimeClassifier(ModelSpec spec, SessionOptions session,
+                      ClassificationOptions options,
+                      std::shared_ptr<detail::RuntimeEngine> engine)
+        : spec_(std::move(spec)),
+          session_(std::move(session)),
+          options_(std::move(options)),
+          engine_(std::move(engine)) {
+        if (!engine_) {
+            init_error_ = make_error(
+                ErrorCode::invalid_state,
+                "Classification runtime requires a valid shared engine.",
+                ErrorContext{.component = std::string{"classification"}});
         }
     }
 
@@ -314,7 +330,7 @@ private:
     ModelSpec spec_;
     SessionOptions session_;
     ClassificationOptions options_;
-    std::unique_ptr<detail::RuntimeEngine> engine_{};
+    std::shared_ptr<detail::RuntimeEngine> engine_{};
     Error init_error_{};
 };
 
@@ -327,5 +343,20 @@ std::unique_ptr<Classifier> create_classifier(ModelSpec spec,
     return std::make_unique<RuntimeClassifier>(
         std::move(spec), std::move(session), std::move(options));
 }
+
+namespace detail
+{
+
+std::unique_ptr<Classifier> create_classifier_with_engine(
+    ModelSpec spec, SessionOptions session, ClassificationOptions options,
+    std::shared_ptr<RuntimeEngine> engine) {
+    spec.task = TaskKind::classify;
+    return std::make_unique<RuntimeClassifier>(std::move(spec),
+                                               std::move(session),
+                                               std::move(options),
+                                               std::move(engine));
+}
+
+}  // namespace detail
 
 }  // namespace yolo

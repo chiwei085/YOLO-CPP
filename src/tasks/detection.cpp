@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -118,30 +117,6 @@ Result<Size2i> resolve_input_size(const ModelSpec& spec,
                 })};
 }
 
-Result<std::span<const float>> as_float_tensor(
-    const detail::RawTensor& tensor) {
-    if (tensor.info.data_type != TensorDataType::float32) {
-        return {.error = detail::make_type_error(
-                    "detection_decoder", tensor.info.name,
-                    TensorDataType::float32, tensor.info.data_type)};
-    }
-
-    if (tensor.storage.size() % sizeof(float) != 0) {
-        return {.error = make_error(
-                    ErrorCode::type_mismatch,
-                    "Detection output tensor byte size is not float-aligned.",
-                    ErrorContext{
-                        .component = std::string{"detection_decoder"},
-                        .output_name = tensor.info.name,
-                    })};
-    }
-
-    const float* data = reinterpret_cast<const float*>(tensor.storage.data());
-    return {.value = std::span<const float>(
-                data, tensor.storage.size() / sizeof(float)),
-            .error = {}};
-}
-
 Result<DetectionDecodeSpec> infer_detection_decode_spec(
     const detail::RawOutputTensors& outputs, const ModelSpec& spec) {
     if (outputs.empty()) {
@@ -235,18 +210,31 @@ RectF xywh_to_rect(float cx, float cy, float w, float h) {
 
 Result<std::vector<DetectionCandidate>> decode_detections(
     const detail::RawOutputTensors& outputs, const DetectionDecodeSpec& spec) {
-    const auto float_values_result =
-        as_float_tensor(outputs[spec.output_index]);
+    const auto float_values_result = detail::copy_float_tensor_data(
+        outputs[spec.output_index], "detection_decoder");
     if (!float_values_result.ok()) {
         return {.error = float_values_result.error};
     }
 
-    const std::span<const float> values = *float_values_result.value;
+    const std::vector<float>& values = *float_values_result.value;
     std::vector<DetectionCandidate> candidates{};
     candidates.reserve(spec.proposal_count);
 
     if (spec.layout == DetectionLayout::xywh_class_scores_last) {
         const std::size_t stride = 4 + spec.class_count;
+        if (values.size() < spec.proposal_count * stride) {
+            return {.error = make_error(
+                        ErrorCode::shape_mismatch,
+                        "Detection output tensor payload is smaller than its "
+                        "decoded shape.",
+                        ErrorContext{
+                            .component = std::string{"detection_decoder"},
+                            .output_name = outputs[spec.output_index].info.name,
+                            .expected =
+                                std::to_string(spec.proposal_count * stride),
+                            .actual = std::to_string(values.size()),
+                        })};
+        }
         for (std::size_t i = 0; i < spec.proposal_count; ++i) {
             const float* row = values.data() + i * stride;
             auto class_begin = row + 4;
@@ -266,6 +254,20 @@ Result<std::vector<DetectionCandidate>> decode_detections(
     }
     else if (spec.layout == DetectionLayout::xywh_class_scores_first) {
         const std::size_t proposal_stride = spec.proposal_count;
+        const std::size_t required_values =
+            proposal_stride * (4 + spec.class_count);
+        if (values.size() < required_values) {
+            return {.error = make_error(
+                        ErrorCode::shape_mismatch,
+                        "Detection output tensor payload is smaller than its "
+                        "decoded shape.",
+                        ErrorContext{
+                            .component = std::string{"detection_decoder"},
+                            .output_name = outputs[spec.output_index].info.name,
+                            .expected = std::to_string(required_values),
+                            .actual = std::to_string(values.size()),
+                        })};
+        }
         for (std::size_t i = 0; i < spec.proposal_count; ++i) {
             const float cx = values[i];
             const float cy = values[proposal_stride + i];
@@ -292,6 +294,19 @@ Result<std::vector<DetectionCandidate>> decode_detections(
     else {
         const std::size_t stride = static_cast<std::size_t>(
             *outputs[spec.output_index].info.shape.dims[1].value);
+        if (values.size() < spec.proposal_count * stride) {
+            return {.error = make_error(
+                        ErrorCode::shape_mismatch,
+                        "Detection output tensor payload is smaller than its "
+                        "decoded shape.",
+                        ErrorContext{
+                            .component = std::string{"detection_decoder"},
+                            .output_name = outputs[spec.output_index].info.name,
+                            .expected =
+                                std::to_string(spec.proposal_count * stride),
+                            .actual = std::to_string(values.size()),
+                        })};
+        }
         for (std::size_t i = 0; i < spec.proposal_count; ++i) {
             const float* row = values.data() + i * stride;
             candidates.push_back(DetectionCandidate{
@@ -448,10 +463,26 @@ public:
           options_(std::move(options)) {
         auto engine_result = detail::RuntimeEngine::create(spec_, session_);
         if (engine_result.ok()) {
-            engine_ = std::move(*engine_result.value);
+            engine_ = std::shared_ptr<detail::RuntimeEngine>(
+                std::move(*engine_result.value));
         }
         else {
             init_error_ = std::move(engine_result.error);
+        }
+    }
+
+    RuntimeDetector(ModelSpec spec, SessionOptions session,
+                    DetectionOptions options,
+                    std::shared_ptr<detail::RuntimeEngine> engine)
+        : spec_(std::move(spec)),
+          session_(std::move(session)),
+          options_(std::move(options)),
+          engine_(std::move(engine)) {
+        if (!engine_) {
+            init_error_ = make_error(
+                ErrorCode::invalid_state,
+                "Detection runtime requires a valid shared engine.",
+                ErrorContext{.component = std::string{"detection"}});
         }
     }
 
@@ -532,7 +563,7 @@ private:
     ModelSpec spec_;
     SessionOptions session_;
     DetectionOptions options_;
-    std::unique_ptr<detail::RuntimeEngine> engine_{};
+    std::shared_ptr<detail::RuntimeEngine> engine_{};
     Error init_error_{};
 };
 
@@ -545,5 +576,20 @@ std::unique_ptr<Detector> create_detector(ModelSpec spec,
     return std::make_unique<RuntimeDetector>(
         std::move(spec), std::move(session), std::move(options));
 }
+
+namespace detail
+{
+
+std::unique_ptr<Detector> create_detector_with_engine(
+    ModelSpec spec, SessionOptions session, DetectionOptions options,
+    std::shared_ptr<RuntimeEngine> engine) {
+    spec.task = TaskKind::detect;
+    return std::make_unique<RuntimeDetector>(std::move(spec),
+                                             std::move(session),
+                                             std::move(options),
+                                             std::move(engine));
+}
+
+}  // namespace detail
 
 }  // namespace yolo
