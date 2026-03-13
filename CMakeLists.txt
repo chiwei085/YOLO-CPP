@@ -14,6 +14,11 @@ add_library(yolo_cpp
   src/core/image_preprocess.cpp
   src/core/tensor_utils.cpp
   src/core/error.cpp
+  src/tasks/detection.cpp
+  src/tasks/classification.cpp
+  src/tasks/segmentation.cpp
+  src/tasks/pose.cpp
+  src/tasks/obb.cpp
 )
 
 target_compile_features(yolo_cpp PUBLIC cxx_std_20)
