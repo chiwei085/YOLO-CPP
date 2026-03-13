@@ -4,3 +4,5 @@ vcpkg_installed/
 CMakeUserPresets.json
 
 *.zip
+# YOLO model weight
+*.pt
