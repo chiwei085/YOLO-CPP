@@ -1,0 +1,20 @@
+{
+  "name": "yolo-cpp",
+  "version-string": "0.1.0",
+  "builtin-baseline": "a44707152fabbedcf1c17fe80d7bfb7d9370d8d5",
+  "dependencies": [],
+  "features": {
+    "cpu": {
+      "description": "CPU ONNX Runtime backend",
+      "dependencies": [
+        "onnxruntime"
+      ]
+    },
+    "cuda": {
+      "description": "CUDA-capable ONNX Runtime backend",
+      "dependencies": [
+        "onnxruntime-gpu"
+      ]
+    }
+  }
+}

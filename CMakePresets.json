@@ -1,0 +1,53 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "environment": {
+        "VCPKG_ROOT": "$penv{HOME}/.local/share/vcpkg"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$penv{HOME}/.local/share/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Dev (CPU)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "YOLO_CPP_ORT_PROVIDER": "cpu",
+        "VCPKG_MANIFEST_FEATURES": "cpu"
+      }
+    },
+    {
+      "name": "dev-cuda",
+      "displayName": "Dev (CUDA)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/cuda",
+      "cacheVariables": {
+        "YOLO_CPP_ORT_PROVIDER": "cuda",
+        "VCPKG_MANIFEST_FEATURES": "cuda"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "build-cuda",
+      "configurePreset": "dev-cuda"
+    }
+  ]
+}
