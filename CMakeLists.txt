@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(yolo_cpp VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(YOLO_CPP_BUILD_EXAMPLES "Build example executables" ON)
 
 set(YOLO_CPP_ORT_PROVIDER "cpu" CACHE STRING
     "Requested ONNX Runtime provider package: cpu or cuda")
@@ -10,6 +11,7 @@ set_property(CACHE YOLO_CPP_ORT_PROVIDER PROPERTY STRINGS cpu cuda)
 
 add_library(yolo_cpp
   src/core/engine.cpp
+  src/core/facade.cpp
   src/core/onnx_session.cpp
   src/core/image_preprocess.cpp
   src/core/tensor_utils.cpp
@@ -83,4 +85,16 @@ if(CMAKE_BINARY_DIR MATCHES "/build/dev$" OR CMAKE_BINARY_DIR MATCHES "/build/cu
     "${CMAKE_SOURCE_DIR}/build/compile_commands.json"
     SYMBOLIC
   )
+endif()
+
+if(YOLO_CPP_BUILD_EXAMPLES)
+  add_executable(detect_image examples/detect_image.cpp)
+  target_link_libraries(detect_image PRIVATE yolo_cpp)
+  target_include_directories(
+    detect_image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+
+  add_executable(classify_image examples/classify_image.cpp)
+  target_link_libraries(classify_image PRIVATE yolo_cpp)
+  target_include_directories(
+    classify_image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
 endif()

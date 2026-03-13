@@ -8,6 +8,7 @@
 #include "yolo/core/session_options.hpp"
 #include "yolo/core/tensor.hpp"
 #include "yolo/core/types.hpp"
+#include "yolo/facade.hpp"
 #include "yolo/tasks/classification.hpp"
 #include "yolo/tasks/detection.hpp"
 #include "yolo/tasks/obb.hpp"
