@@ -140,7 +140,7 @@ def python_classify_summary(model, image_path: Path) -> dict[str, object]:
 
 
 def python_seg_summary(np, model, image_path: Path) -> dict[str, object]:
-    result = model.predict(str(image_path), verbose=False)[0]
+    result = model.predict(str(image_path), verbose=False, retina_masks=True)[0]
     instances: list[dict[str, object]] = []
     if result.boxes is not None:
         boxes_xyxy = result.boxes.xyxy.cpu().tolist()

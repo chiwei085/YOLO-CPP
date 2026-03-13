@@ -141,6 +141,16 @@ if(YOLO_CPP_BUILD_DIAGNOSTICS AND onnxruntime_FOUND)
     yolo_cpp_parity_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples
   )
 
+  add_executable(
+    yolo_cpp_segmentation_debug_dump
+    tools/yolo_cpp_segmentation_debug_dump.cpp
+  )
+  target_compile_features(yolo_cpp_segmentation_debug_dump PRIVATE cxx_std_20)
+  target_link_libraries(yolo_cpp_segmentation_debug_dump PRIVATE yolo_cpp)
+  target_include_directories(
+    yolo_cpp_segmentation_debug_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples
+  )
+
 endif()
 
 if(BUILD_TESTING)
