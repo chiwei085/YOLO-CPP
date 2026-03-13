@@ -1,18 +1,20 @@
 # YOLO-CPP
 
-Minimal YOLO runtime in C++20
+Minimal YOLO runtime in C++20, with a small facade API, Ultralytics-oriented
+adapter probing, and a layered test suite around detect / classify / seg.
 
-## Status
+## Current State
 
-Current milestones implemented:
+- `detect`: usable and parity-aligned with Ultralytics Python on the current
+  parity assets
+- `classify`: usable and parity-aligned with Ultralytics Python on the current
+  parity assets
+- `seg`: binding-driven runtime is in place; integration/parity depend on a
+  local segmentation ONNX asset
+- `pose` / `obb`: not part of the current parity/integration mainline
 
-- runtime core and ONNX session abstraction
-- image preprocess contract
-- task skeletons, with `detect` and `classify` usable
-- Ultralytics adapter probing for `detect`, `classify`, and `seg`
-- facade-based loading and inference entry points
-
-Current examples are intentionally small and currently use a simple `PPM` loader (`P5`/`P6`) instead of OpenCV.
+The examples are intentionally small and currently use a simple `PPM`
+(`P5`/`P6`) loader instead of OpenCV.
 
 ## Prerequisites
 
@@ -21,13 +23,27 @@ Current examples are intentionally small and currently use a simple `PPM` loader
 - a C++20 compiler
 - `vcpkg`
 
-This repo is set up for `vcpkg` manifest mode and expects `VCPKG_ROOT` to point to your local `vcpkg` checkout.
-
-The provided presets assume:
+This repo assumes `VCPKG_ROOT` points at your local `vcpkg` checkout. The
+presets are written for:
 
 ```bash
 export VCPKG_ROOT="$HOME/.local/share/vcpkg"
 ```
+
+## Recommended Build Baseline
+
+The verified `vcpkg` baseline for development and model-backed tests is:
+
+- shared ONNX Runtime via `x64-linux-dynamic`
+- the local ONNX overlay port in [`vcpkg-overlay-ports/onnx`](vcpkg-overlay-ports/onnx)
+
+This avoids the static ONNX registration conflict that breaks model loading in
+the default static package combination.
+
+See:
+
+- [`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md)
+- [`docs/ort_static_vs_shared_plan.md`](docs/ort_static_vs_shared_plan.md)
 
 ## Build
 
@@ -45,27 +61,11 @@ Build:
 cmake --build build/dev
 ```
 
-This will:
+This preset uses:
 
-- install the `cpu` manifest feature from `vcpkg.json`
-- pull `onnxruntime` with the `x64-linux-dynamic` triplet
-- generate `build/dev/compile_commands.json`
-- symlink `build/compile_commands.json` for `clangd`
-
-The `dev` preset intentionally uses shared ONNX Runtime. The previous
-`x64-linux` static triplet pulled standalone ONNX archives into the process and
-triggered duplicate schema registration during model-backed integration tests.
-
-For vcpkg-based development, the currently verified working baseline is:
-
-- shared ORT via `x64-linux-dynamic`
-- the local ONNX overlay port under
-  [`vcpkg-overlay-ports/onnx/portfile.cmake`](vcpkg-overlay-ports/onnx/portfile.cmake)
-
-The overlay forces `ONNX_DISABLE_STATIC_REGISTRATION=ON`, which restores clean
-model loading and unblocks the model-backed integration tests. See
-[`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md)
-for reinstall and verification steps.
+- `YOLO_CPP_ORT_PROVIDER=cpu`
+- `VCPKG_TARGET_TRIPLET=x64-linux-dynamic`
+- `VCPKG_MANIFEST_FEATURES=cpu`
 
 ### CUDA
 
@@ -81,119 +81,93 @@ Build:
 cmake --build build/cuda
 ```
 
-This switches the manifest feature to `cuda` and requests `onnxruntime-gpu`.
-
-## Disable Examples
-
-Examples are enabled by default.
-
-To build library-only:
+### Library-Only
 
 ```bash
 cmake --preset dev -DYOLO_CPP_BUILD_EXAMPLES=OFF
 cmake --build build/dev
 ```
 
-## Run Examples
+## Examples
 
-The examples build these executables:
+Built executables:
 
 - `build/dev/detect_image`
 - `build/dev/classify_image`
 
-### Detect
+Detect:
 
 ```bash
 ./build/dev/detect_image /path/to/model.onnx /path/to/image.ppm
 ```
 
-### Classify
+Classify:
 
 ```bash
 ./build/dev/classify_image /path/to/model.onnx /path/to/image.ppm
 ```
 
-Both examples:
+If your input is `jpg`/`png`, convert it first:
 
-- load a model through the high-level facade
-- auto-probe a supported Ultralytics adapter
-- run inference
-- print a small result preview
+```bash
+magick input.jpg output.ppm
+```
 
-## Tests
+## Testing
 
-Testing is enabled by default through CMake's `BUILD_TESTING=ON`.
+Testing is enabled by default with `BUILD_TESTING=ON`.
 
-Configure and build:
+Build and run:
 
 ```bash
 cmake --preset dev --fresh
 cmake --build build/dev --target check
 ```
 
-Or run tests directly:
+Or:
 
 ```bash
-cd build/dev
-ctest --output-on-failure
+ctest --test-dir build/dev --output-on-failure
 ```
 
-### Test Layout
+Test layers:
 
-- `tests/unit`: pure helper and semantics tests
-- `tests/component`: decode/postprocess behavior tests with synthetic tensors
-- `tests/adapter`: Ultralytics binding/probe tests and task hard constraints
+- `tests/unit`: helper contracts and semantics
+- `tests/component`: decode, preprocess, postprocess behavior with synthetic data
+- `tests/adapter`: Ultralytics probe/binding behavior and task constraints
 - `tests/integration`: model-backed pipeline tests
-- `tests/parity`: parity runner skeletons, not registered in CTest yet
+- `tests/parity`: manual parity checks against Ultralytics Python
 
-### Model-Free Tests
+`unit` / `component` / `adapter` tests are model-free. Integration tests are
+only added when the required ONNX assets exist under `tests/assets/models/`.
 
-These tests do not require exported ONNX models:
+More detail lives in [`tests/README.md`](tests/README.md).
 
-- all `unit`, `component`, and `adapter` tests
+## Parity
 
-They are intended to stay fast and rely on synthetic tensors and synthetic
-metadata rather than real models.
+Current parity status:
 
-### Model-Backed Integration Tests
+- detect: aligned
+- classify: aligned
+- segmentation: runner ready; requires `tests/assets/models/yolov8n-seg.onnx`
 
-Integration tests are only added when both of these files exist:
-
-- `tests/assets/models/yolov8n.onnx`
-- `tests/assets/models/yolov8n-cls.onnx`
-
-They also require ONNX Runtime to be available in the configured build.
-The supported integration path is the `dev` preset with the ONNX overlay
-baseline:
-
-- `VCPKG_TARGET_TRIPLET=x64-linux-dynamic`
-- `VCPKG_OVERLAY_PORTS=./vcpkg-overlay-ports`
-
-If the model assets are missing, the regular non-integration test suite still
-builds and runs normally.
-
-## Example Input Format
-
-The current example loader supports only:
-
-- `P6` RGB PPM
-- `P5` grayscale PPM
-
-If your source image is `png`/`jpg`, convert it first, for example:
+Run parity manually with the project test environment:
 
 ```bash
-magick input.jpg output.ppm
+.venv-tests/bin/python tests/parity/run_parity.py --check
 ```
 
-## Public Entry Point
+More detail lives in [`tests/parity/README.md`](tests/parity/README.md).
 
-The umbrella header is:
+## Public API
+
+Umbrella header:
 
 ```cpp
 #include "yolo/yolos.hpp"
 ```
 
-The main high-level API is:
+Main facade:
 
 ```cpp
 #include "yolo/facade.hpp"
@@ -220,11 +194,5 @@ From there you can:
 - inspect `pipeline->info()`
 - call `pipeline->detect(image)`
 - call `pipeline->classify(image)`
+- call `pipeline->segment(image)`
 - call `pipeline->run_raw(image)`
-
-## Notes
-
-- `detect` and `classify` are the main usable paths right now.
-- `seg` has adapter probing, but task decode/postprocess is still stubbed.
-- `pose` and `obb` are still framework-level stubs.
-- examples are intended as smoke tests and API demonstrations, not benchmarks.
