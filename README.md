@@ -9,8 +9,8 @@ adapter probing, and a layered test suite around detect / classify / seg.
   parity assets
 - `classify`: usable and parity-aligned with Ultralytics Python on the current
   parity assets
-- `seg`: binding-driven runtime is in place; integration/parity depend on a
-  local segmentation ONNX asset
+- `seg`: usable and parity-aligned with Ultralytics Python on the current
+  parity assets, with staged debug dumps for first-fail analysis
 - `pose` / `obb`: not part of the current parity/integration mainline
 
 The examples are intentionally small and currently use a simple `PPM`
@@ -28,6 +28,7 @@ presets are written for:
 
 ```bash
 export VCPKG_ROOT="$HOME/.local/share/vcpkg"
+export VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports"
 ```
 
 ## Recommended Build Baseline
@@ -52,12 +53,14 @@ See:
 Configure:
 
 ```bash
+VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --preset dev --fresh
 ```
 
 Build:
 
 ```bash
+VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --build build/dev
 ```
 
@@ -84,7 +87,9 @@ cmake --build build/cuda
 ### Library-Only
 
 ```bash
+VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --preset dev -DYOLO_CPP_BUILD_EXAMPLES=OFF
+VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --build build/dev
 ```
 
@@ -149,12 +154,18 @@ Current parity status:
 
 - detect: aligned
 - classify: aligned
-- segmentation: runner ready; requires `tests/assets/models/yolov8n-seg.onnx`
+- segmentation: aligned on `tests/assets/models/yolov8n-seg.onnx`
 
 Run parity manually with the project test environment:
 
 ```bash
 .venv-tests/bin/python tests/parity/run_parity.py --check
+```
+
+Run the staged segmentation debug dump:
+
+```bash
+.venv-tests/bin/python tests/parity/run_segmentation_debug.py
 ```
 
 More detail lives in [`tests/parity/README.md`](tests/parity/README.md).
