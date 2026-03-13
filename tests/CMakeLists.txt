@@ -23,7 +23,12 @@ set(YOLO_CPP_TEST_COMMON_SOURCES
   unit/test_tensor_utils.cpp
   unit/test_pipeline_info.cpp
   component/test_detection_decode.cpp
+  component/test_detection_decode_layouts.cpp
+  component/test_detection_decode_validation.cpp
   component/test_detection_postprocess.cpp
+  component/test_detection_postprocess_filtering.cpp
+  component/test_detection_postprocess_nms.cpp
+  component/test_detection_postprocess_restore.cpp
   component/test_classification_decode.cpp
   adapter/test_ultralytics_detect_probe.cpp
   adapter/test_ultralytics_classify_probe.cpp
