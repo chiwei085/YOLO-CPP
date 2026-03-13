@@ -5,6 +5,7 @@
 #include "yolo/adapters/ultralytics.hpp"
 #include "yolo/tasks/classification.hpp"
 #include "yolo/tasks/detection.hpp"
+#include "yolo/tasks/segmentation.hpp"
 
 namespace yolo::detail
 {
@@ -20,5 +21,9 @@ class RuntimeEngine;
     adapters::ultralytics::AdapterBindingSpec binding, SessionOptions session,
     ClassificationOptions options,
     std::shared_ptr<RuntimeEngine> engine);
+
+[[nodiscard]] std::unique_ptr<Segmenter> create_segmenter_with_engine(
+    adapters::ultralytics::AdapterBindingSpec binding, SessionOptions session,
+    SegmentationOptions options, std::shared_ptr<RuntimeEngine> engine);
 
 }  // namespace yolo::detail

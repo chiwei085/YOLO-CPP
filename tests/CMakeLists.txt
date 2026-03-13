@@ -30,8 +30,11 @@ set(YOLO_CPP_TEST_COMMON_SOURCES
   component/test_detection_postprocess_nms.cpp
   component/test_detection_postprocess_restore.cpp
   component/test_classification_decode.cpp
+  component/test_segmentation_decode_contract.cpp
+  component/test_segmentation_mask_projection.cpp
   adapter/test_ultralytics_detect_probe.cpp
   adapter/test_ultralytics_classify_probe.cpp
+  adapter/test_ultralytics_seg_binding_contract.cpp
   adapter/test_task_hard_constraint.cpp
 )
 
@@ -43,16 +46,20 @@ catch_discover_tests(yolo_cpp_tests)
 set(YOLO_CPP_TEST_MODEL_DIR "${CMAKE_SOURCE_DIR}/tests/assets/models")
 set(YOLO_CPP_TEST_DETECT_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n.onnx")
 set(YOLO_CPP_TEST_CLASSIFY_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-cls.onnx")
+set(YOLO_CPP_TEST_SEGMENT_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-seg.onnx")
 
 if(onnxruntime_FOUND
    AND EXISTS "${YOLO_CPP_TEST_DETECT_MODEL}"
    AND EXISTS "${YOLO_CPP_TEST_CLASSIFY_MODEL}")
-  add_executable(
-    yolo_cpp_integration_tests
+  set(YOLO_CPP_INTEGRATION_SOURCES
     integration/test_detect_pipeline.cpp
     integration/test_classify_pipeline.cpp
     integration/test_run_raw_guards.cpp
     test_utils.hpp
+  )
+  add_executable(
+    yolo_cpp_integration_tests
+    ${YOLO_CPP_INTEGRATION_SOURCES}
   )
   target_link_libraries(
     yolo_cpp_integration_tests PRIVATE yolo_cpp Catch2::Catch2WithMain
@@ -66,6 +73,20 @@ if(onnxruntime_FOUND
       YOLO_CPP_TEST_DETECT_MODEL="${YOLO_CPP_TEST_DETECT_MODEL}"
       YOLO_CPP_TEST_CLASSIFY_MODEL="${YOLO_CPP_TEST_CLASSIFY_MODEL}"
   )
+
+  if(EXISTS "${YOLO_CPP_TEST_SEGMENT_MODEL}")
+    target_sources(
+      yolo_cpp_integration_tests
+      PRIVATE
+        integration/test_segment_pipeline.cpp
+    )
+    target_compile_definitions(
+      yolo_cpp_integration_tests
+      PRIVATE
+        YOLO_CPP_TEST_SEGMENT_MODEL="${YOLO_CPP_TEST_SEGMENT_MODEL}"
+    )
+  endif()
+
   catch_discover_tests(yolo_cpp_integration_tests)
 endif()
 

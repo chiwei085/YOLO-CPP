@@ -118,13 +118,15 @@ Result<AdapterBindingSpec> build_segmentation_binding(
             static_cast<std::size_t>(*prediction.shape.dims[1].value);
         const std::size_t second =
             static_cast<std::size_t>(*prediction.shape.dims[2].value);
-        if (second >= 4 + mask_channels + 1) {
+        const std::size_t minimum_width = 4 + mask_channels + 1;
+        if (second >= minimum_width &&
+            (first < minimum_width || first >= second)) {
             segmentation.layout = DetectionHeadLayout::xywh_class_scores_last;
             segmentation.proposal_count = first;
             segmentation.class_count =
                 model.class_count.value_or(second - 4 - mask_channels);
         }
-        else if (first >= 4 + mask_channels + 1) {
+        else if (first >= minimum_width) {
             segmentation.layout = DetectionHeadLayout::xywh_class_scores_first;
             segmentation.proposal_count = second;
             segmentation.class_count =

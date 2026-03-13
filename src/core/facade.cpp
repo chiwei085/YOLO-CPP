@@ -42,7 +42,7 @@ std::vector<TaskKind> probe_order(TaskKind hint) {
         return {TaskKind::classify, TaskKind::detect, TaskKind::seg};
     }
     if (hint == TaskKind::seg) {
-        return {TaskKind::seg, TaskKind::detect, TaskKind::classify};
+        return {TaskKind::seg};
     }
     if (hint == TaskKind::pose) {
         return {TaskKind::pose};
@@ -336,8 +336,8 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
             binding, session, options.classification, shared_engine);
     }
     else if (binding.model.task == TaskKind::seg) {
-        segmenter =
-            create_segmenter(binding.model, session, options.segmentation);
+        segmenter = detail::create_segmenter_with_engine(
+            binding, session, options.segmentation, shared_engine);
     }
     else if (binding.model.task == TaskKind::pose) {
         pose_estimator =
