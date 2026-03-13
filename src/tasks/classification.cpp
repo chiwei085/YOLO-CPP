@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "yolo/adapters/ultralytics.hpp"
+#include "yolo/detail/classification_runtime.hpp"
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
 #include "yolo/detail/task_runtime_utils.hpp"
@@ -22,50 +23,6 @@ using adapters::ultralytics::AdapterBindingSpec;
 using adapters::ultralytics::ClassificationBindingSpec;
 using adapters::ultralytics::ClassificationScoreKind;
 using adapters::ultralytics::OutputRole;
-
-struct ClassificationDecodeSpec
-{
-    std::size_t output_index{0};
-    std::size_t class_count{0};
-    ClassificationScoreKind score_kind{ClassificationScoreKind::unknown};
-};
-
-Result<ClassificationDecodeSpec> classification_decode_spec_from_binding(
-    const AdapterBindingSpec& binding) {
-    if (!binding.classification.has_value()) {
-        return {.error = make_error(
-                    ErrorCode::invalid_state,
-                    "Classification runtime requires a classification binding "
-                    "spec.",
-                    ErrorContext{
-                        .component = std::string{"classification"}})};
-    }
-
-    if (binding.outputs.empty()) {
-        return {.error = make_error(
-                    ErrorCode::invalid_state,
-                    "Classification runtime requires at least one bound "
-                    "output.",
-                    ErrorContext{
-                        .component = std::string{"classification"}})};
-    }
-
-    std::size_t output_index = binding.outputs.front().index;
-    for (const auto& output : binding.outputs) {
-        if (output.role == OutputRole::predictions) {
-            output_index = output.index;
-            break;
-        }
-    }
-
-    const ClassificationBindingSpec& classification = *binding.classification;
-    return {.value = ClassificationDecodeSpec{
-                .output_index = output_index,
-                .class_count = classification.class_count,
-                .score_kind = classification.score_kind,
-            },
-            .error = {}};
-}
 
 void softmax_in_place(std::vector<float>& values) {
     if (values.empty()) {
@@ -88,61 +45,6 @@ void softmax_in_place(std::vector<float>& values) {
     }
 }
 
-Result<std::vector<float>> decode_classification_scores(
-    const detail::RawOutputTensors& outputs,
-    const ClassificationDecodeSpec& decode_spec) {
-    if (decode_spec.output_index >= outputs.size()) {
-        return {
-            .error = make_error(
-                ErrorCode::shape_mismatch,
-                "Classification binding points to a missing output tensor.",
-                ErrorContext{
-                    .component = std::string{"classification_decoder"},
-                    .expected =
-                        std::to_string(decode_spec.output_index + 1) +
-                        " output tensors",
-                    .actual = std::to_string(outputs.size()) +
-                              " output tensors",
-                })};
-    }
-
-    const auto values_result = detail::copy_float_tensor_data(
-        outputs[decode_spec.output_index], "classification_decoder");
-    if (!values_result.ok()) {
-        return {.error = values_result.error};
-    }
-
-    const TensorInfo& info = outputs[decode_spec.output_index].info;
-    if (decode_spec.class_count > values_result.value->size()) {
-        return {.error = make_error(
-                    ErrorCode::shape_mismatch,
-                    "Classification output shape exceeds tensor payload.",
-                    ErrorContext{
-                        .component = std::string{"classification_decoder"},
-                        .output_name = info.name,
-                        .expected = std::to_string(decode_spec.class_count),
-                        .actual =
-                            std::to_string(values_result.value->size()),
-                    })};
-    }
-
-    std::vector<float> scores(values_result.value->begin(),
-                              values_result.value->begin() +
-                                  decode_spec.class_count);
-    if (decode_spec.score_kind == ClassificationScoreKind::logits) {
-        softmax_in_place(scores);
-    }
-    else if (decode_spec.score_kind == ClassificationScoreKind::unknown) {
-        // Keep the public API stable by exposing probabilities even when the
-        // adapter cannot prove whether the source tensor was already normalized.
-        softmax_in_place(scores);
-    }
-
-    return {
-        .value = std::move(scores),
-        .error = {}};
-}
-
 std::optional<std::string> label_for(const ModelSpec& spec, ClassId class_id) {
     const std::size_t index = static_cast<std::size_t>(class_id);
     if (index < spec.labels.size()) {
@@ -152,37 +54,10 @@ std::optional<std::string> label_for(const ModelSpec& spec, ClassId class_id) {
     return std::nullopt;
 }
 
-std::vector<Classification> postprocess_classification(
-    const std::vector<float>& scores, const ClassificationOptions& options,
-    const ModelSpec& spec) {
-    std::vector<std::size_t> indices(scores.size());
-    for (std::size_t i = 0; i < indices.size(); ++i) {
-        indices[i] = i;
-    }
-
-    const std::size_t top_k = std::min(options.top_k, indices.size());
-    std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
-                      [&](std::size_t lhs, std::size_t rhs) {
-                          return scores[lhs] > scores[rhs];
-                      });
-
-    std::vector<Classification> classes{};
-    classes.reserve(top_k);
-    for (std::size_t i = 0; i < top_k; ++i) {
-        classes.push_back(Classification{
-            .class_id = static_cast<ClassId>(indices[i]),
-            .score = scores[indices[i]],
-            .label = label_for(spec, static_cast<ClassId>(indices[i])),
-        });
-    }
-
-    return classes;
-}
-
 InferenceMetadata make_metadata(const detail::RuntimeEngine& engine,
                                 const detail::PreprocessedImage& preprocessed,
                                 const SessionOptions& session,
-                                const ClassificationDecodeSpec& decode_spec) {
+                                const detail::ClassificationDecodeSpec& decode_spec) {
     ClassificationScoreSemantics source_semantics =
         ClassificationScoreSemantics::unknown;
     if (decode_spec.score_kind == ClassificationScoreKind::logits) {
@@ -217,7 +92,7 @@ public:
         }
 
         auto decode_spec_result =
-            classification_decode_spec_from_binding(binding_);
+            detail::classification_decode_spec_from_binding(binding_);
         if (!decode_spec_result.ok()) {
             init_error_ = std::move(decode_spec_result.error);
             return;
@@ -284,7 +159,7 @@ public:
         }
 
         auto decoded_scores_result =
-            decode_classification_scores(*outputs_result.value, decode_spec_);
+            detail::decode_classification_scores(*outputs_result.value, decode_spec_);
         if (!decoded_scores_result.ok()) {
             return ClassificationResult{
                 .classes = {},
@@ -297,8 +172,8 @@ public:
         }
 
         return ClassificationResult{
-            .classes = postprocess_classification(*decoded_scores_result.value,
-                                                  options_, spec_),
+            .classes = detail::postprocess_classification(
+                *decoded_scores_result.value, options_, spec_),
             .scores = *decoded_scores_result.value,
             .metadata =
                 make_metadata(*engine_, *preprocess_result.value, session_,
@@ -313,11 +188,135 @@ private:
     SessionOptions session_;
     ClassificationOptions options_;
     std::shared_ptr<detail::RuntimeEngine> engine_{};
-    ClassificationDecodeSpec decode_spec_{};
+    detail::ClassificationDecodeSpec decode_spec_{};
     Error init_error_{};
 };
 
 }  // namespace
+
+namespace detail
+{
+
+Result<ClassificationDecodeSpec> classification_decode_spec_from_binding(
+    const AdapterBindingSpec& binding) {
+    if (!binding.classification.has_value()) {
+        return {.error = make_error(
+                    ErrorCode::invalid_state,
+                    "Classification runtime requires a classification binding "
+                    "spec.",
+                    ErrorContext{
+                        .component = std::string{"classification"}})};
+    }
+
+    if (binding.outputs.empty()) {
+        return {.error = make_error(
+                    ErrorCode::invalid_state,
+                    "Classification runtime requires at least one bound "
+                    "output.",
+                    ErrorContext{
+                        .component = std::string{"classification"}})};
+    }
+
+    std::size_t output_index = binding.outputs.front().index;
+    for (const auto& output : binding.outputs) {
+        if (output.role == OutputRole::predictions) {
+            output_index = output.index;
+            break;
+        }
+    }
+
+    const ClassificationBindingSpec& classification = *binding.classification;
+    return {.value = ClassificationDecodeSpec{
+                .output_index = output_index,
+                .class_count = classification.class_count,
+                .score_kind = classification.score_kind,
+            },
+            .error = {}};
+}
+
+Result<std::vector<float>> decode_classification_scores(
+    const detail::RawOutputTensors& outputs,
+    const ClassificationDecodeSpec& decode_spec) {
+    if (decode_spec.output_index >= outputs.size()) {
+        return {
+            .error = make_error(
+                ErrorCode::shape_mismatch,
+                "Classification binding points to a missing output tensor.",
+                ErrorContext{
+                    .component = std::string{"classification_decoder"},
+                    .expected =
+                        std::to_string(decode_spec.output_index + 1) +
+                        " output tensors",
+                    .actual = std::to_string(outputs.size()) +
+                              " output tensors",
+                })};
+    }
+
+    const auto values_result = detail::copy_float_tensor_data(
+        outputs[decode_spec.output_index], "classification_decoder");
+    if (!values_result.ok()) {
+        return {.error = values_result.error};
+    }
+
+    const TensorInfo& info = outputs[decode_spec.output_index].info;
+    if (decode_spec.class_count > values_result.value->size()) {
+        return {.error = make_error(
+                    ErrorCode::shape_mismatch,
+                    "Classification output shape exceeds tensor payload.",
+                    ErrorContext{
+                        .component = std::string{"classification_decoder"},
+                        .output_name = info.name,
+                        .expected = std::to_string(decode_spec.class_count),
+                        .actual =
+                            std::to_string(values_result.value->size()),
+                    })};
+    }
+
+    std::vector<float> scores(values_result.value->begin(),
+                              values_result.value->begin() +
+                                  decode_spec.class_count);
+    if (decode_spec.score_kind == ClassificationScoreKind::logits) {
+        softmax_in_place(scores);
+    }
+    else if (decode_spec.score_kind == ClassificationScoreKind::unknown) {
+        // Keep the public API stable by exposing probabilities even when the
+        // adapter cannot prove whether the source tensor was already normalized.
+        softmax_in_place(scores);
+    }
+
+    return {
+        .value = std::move(scores),
+        .error = {}};
+}
+
+std::vector<Classification> postprocess_classification(
+    const std::vector<float>& scores, const ClassificationOptions& options,
+    const ModelSpec& spec) {
+    std::vector<std::size_t> indices(scores.size());
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
+    }
+
+    const std::size_t top_k = std::min(options.top_k, indices.size());
+    std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
+                      [&](std::size_t lhs, std::size_t rhs) {
+                          return scores[lhs] > scores[rhs];
+                      });
+
+    std::vector<Classification> classes{};
+    classes.reserve(top_k);
+    for (std::size_t i = 0; i < top_k; ++i) {
+        classes.push_back(Classification{
+            .class_id = static_cast<ClassId>(indices[i]),
+            .score = scores[indices[i]],
+            .label = label_for(spec, static_cast<ClassId>(indices[i])),
+        });
+    }
+
+    return classes;
+}
+
+}  // namespace detail
 
 std::unique_ptr<Classifier> create_classifier(ModelSpec spec,
                                               SessionOptions session,

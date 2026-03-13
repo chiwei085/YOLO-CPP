@@ -8,6 +8,7 @@
 
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
+#include "yolo/detail/pipeline_info_utils.hpp"
 #include "yolo/detail/task_factory.hpp"
 #include "yolo/detail/task_runtime_utils.hpp"
 
@@ -317,13 +318,8 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
     auto shared_engine =
         std::shared_ptr<detail::RuntimeEngine>(std::move(*engine_result.value));
 
-    PipelineInfo info{
-        .model = binding.model,
-        .inputs = shared_engine->description().inputs,
-        .outputs = shared_engine->description().outputs,
-        .preprocess = binding.preprocess,
-        .adapter_binding = binding,
-    };
+    PipelineInfo info =
+        detail::make_pipeline_info(binding, shared_engine->description());
 
     std::unique_ptr<Detector> detector{};
     std::unique_ptr<Classifier> classifier{};

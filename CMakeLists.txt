@@ -4,6 +4,8 @@ project(yolo_cpp VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(YOLO_CPP_BUILD_EXAMPLES "Build example executables" ON)
+option(YOLO_CPP_BUILD_DIAGNOSTICS "Build diagnostic probes" ON)
+include(CTest)
 
 set(YOLO_CPP_ORT_PROVIDER "cpu" CACHE STRING
     "Requested ONNX Runtime provider package: cpu or cuda")
@@ -14,6 +16,7 @@ add_library(yolo_cpp
   src/core/facade.cpp
   src/core/onnx_session.cpp
   src/core/image_preprocess.cpp
+  src/core/pipeline_info_utils.cpp
   src/core/tensor_utils.cpp
   src/core/task_runtime_utils.cpp
   src/core/error.cpp
@@ -49,6 +52,23 @@ if(YOLO_CPP_ORT_PROVIDER_NORMALIZED STREQUAL "cuda")
   set(YOLO_CPP_ORT_EXPECTED_PACKAGE "onnxruntime-gpu")
 endif()
 
+function(yolo_cpp_apply_ort_include_compat target_name)
+  get_target_property(
+    YOLO_CPP_ORT_INCLUDE_DIRS onnxruntime::onnxruntime INTERFACE_INCLUDE_DIRECTORIES
+  )
+  foreach(YOLO_CPP_ORT_INCLUDE_DIR IN LISTS YOLO_CPP_ORT_INCLUDE_DIRS)
+    if(YOLO_CPP_ORT_INCLUDE_DIR MATCHES "/include/onnxruntime/?$")
+      cmake_path(GET YOLO_CPP_ORT_INCLUDE_DIR PARENT_PATH YOLO_CPP_ORT_INCLUDE_ROOT)
+      if(EXISTS "${YOLO_CPP_ORT_INCLUDE_ROOT}/onnxruntime/onnxruntime_cxx_api.h")
+        target_include_directories(${target_name}
+          PRIVATE
+            "${YOLO_CPP_ORT_INCLUDE_ROOT}"
+        )
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
 find_package(onnxruntime CONFIG QUIET
   PATHS
     ${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/share/onnxruntime
@@ -63,6 +83,7 @@ if(onnxruntime_FOUND)
   endif()
 
   target_link_libraries(yolo_cpp PRIVATE onnxruntime::onnxruntime)
+  yolo_cpp_apply_ort_include_compat(yolo_cpp)
 
   message(STATUS
     "Using ONNX Runtime backend (${YOLO_CPP_ORT_PROVIDER_NORMALIZED}) "
@@ -100,4 +121,19 @@ if(YOLO_CPP_BUILD_EXAMPLES)
   target_link_libraries(classify_image PRIVATE yolo_cpp)
   target_include_directories(
     classify_image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+endif()
+
+if(YOLO_CPP_BUILD_DIAGNOSTICS AND onnxruntime_FOUND)
+  add_executable(ort_session_probe tools/ort_session_probe.cpp)
+  target_compile_features(ort_session_probe PRIVATE cxx_std_20)
+  target_link_libraries(ort_session_probe PRIVATE onnxruntime::onnxruntime)
+  yolo_cpp_apply_ort_include_compat(ort_session_probe)
+
+  add_executable(onnx_session_probe tools/onnx_session_probe.cpp)
+  target_compile_features(onnx_session_probe PRIVATE cxx_std_20)
+  target_link_libraries(onnx_session_probe PRIVATE yolo_cpp)
+endif()
+
+if(BUILD_TESTING)
+  add_subdirectory(tests)
 endif()
