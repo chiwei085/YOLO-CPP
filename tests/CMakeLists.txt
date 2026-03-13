@@ -16,6 +16,10 @@ set(YOLO_CPP_TEST_COMMON_SOURCES
   test_utils.hpp
   unit/test_classification_semantics.cpp
   unit/test_image_preprocess.cpp
+  unit/test_task_common_input_selection.cpp
+  unit/test_task_common_metadata.cpp
+  unit/test_task_common_provider.cpp
+  unit/test_task_common_shape_validation.cpp
   unit/test_tensor_utils.cpp
   unit/test_pipeline_info.cpp
   component/test_detection_decode.cpp
