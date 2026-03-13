@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "yolo/adapters/ultralytics.hpp"
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
 
@@ -15,6 +17,10 @@ namespace yolo
 {
 namespace
 {
+using adapters::ultralytics::AdapterBindingSpec;
+using adapters::ultralytics::ClassificationBindingSpec;
+using adapters::ultralytics::ClassificationScoreKind;
+using adapters::ultralytics::OutputRole;
 
 std::string provider_name_from_options(const SessionOptions& options) {
     if (options.providers.empty()) {
@@ -45,117 +51,118 @@ Result<TensorInfo> select_primary_input(const detail::RuntimeEngine& engine) {
     return {.value = inputs.front(), .error = {}};
 }
 
-bool is_channel_dimension(const TensorDimension& dim) {
-    return dim.value.has_value() &&
-           (*dim.value == 1 || *dim.value == 3 || *dim.value == 4);
+struct ClassificationDecodeSpec
+{
+    std::size_t output_index{0};
+    std::size_t class_count{0};
+    ClassificationScoreKind score_kind{ClassificationScoreKind::unknown};
+};
+
+Result<ClassificationDecodeSpec> classification_decode_spec_from_binding(
+    const AdapterBindingSpec& binding) {
+    if (!binding.classification.has_value()) {
+        return {.error = make_error(
+                    ErrorCode::invalid_state,
+                    "Classification runtime requires a classification binding "
+                    "spec.",
+                    ErrorContext{
+                        .component = std::string{"classification"}})};
+    }
+
+    if (binding.outputs.empty()) {
+        return {.error = make_error(
+                    ErrorCode::invalid_state,
+                    "Classification runtime requires at least one bound "
+                    "output.",
+                    ErrorContext{
+                        .component = std::string{"classification"}})};
+    }
+
+    std::size_t output_index = binding.outputs.front().index;
+    for (const auto& output : binding.outputs) {
+        if (output.role == OutputRole::predictions) {
+            output_index = output.index;
+            break;
+        }
+    }
+
+    const ClassificationBindingSpec& classification = *binding.classification;
+    return {.value = ClassificationDecodeSpec{
+                .output_index = output_index,
+                .class_count = classification.class_count,
+                .score_kind = classification.score_kind,
+            },
+            .error = {}};
 }
 
-Result<Size2i> resolve_input_size(const ModelSpec& spec,
-                                  const TensorInfo& input) {
-    if (spec.input_size.has_value()) {
-        return {.value = *spec.input_size, .error = {}};
+void softmax_in_place(std::vector<float>& values) {
+    if (values.empty()) {
+        return;
     }
 
-    if (input.shape.rank() != 4) {
-        return {.error = make_error(
-                    ErrorCode::shape_mismatch,
-                    "Classification input tensor must be rank-4.",
-                    ErrorContext{
-                        .component = std::string{"classification"},
-                        .input_name = input.name,
-                        .expected = std::string{"[N,C,H,W] or [N,H,W,C]"},
-                        .actual = detail::format_shape(input.shape),
-                    })};
+    const float max_value = *std::max_element(values.begin(), values.end());
+    float sum = 0.0F;
+    for (float& value : values) {
+        value = std::exp(value - max_value);
+        sum += value;
     }
 
-    const auto& dims = input.shape.dims;
-    if (is_channel_dimension(dims[1]) && dims[2].value.has_value() &&
-        dims[3].value.has_value()) {
-        return {.value = Size2i{static_cast<int>(*dims[3].value),
-                                static_cast<int>(*dims[2].value)},
-                .error = {}};
+    if (sum <= 0.0F) {
+        return;
     }
 
-    if (dims[1].value.has_value() && dims[2].value.has_value() &&
-        is_channel_dimension(dims[3])) {
-        return {.value = Size2i{static_cast<int>(*dims[2].value),
-                                static_cast<int>(*dims[1].value)},
-                .error = {}};
+    for (float& value : values) {
+        value /= sum;
     }
-
-    return {.error = make_error(
-                ErrorCode::shape_mismatch,
-                "Classification input tensor has unsupported spatial layout.",
-                ErrorContext{
-                    .component = std::string{"classification"},
-                    .input_name = input.name,
-                    .expected = std::string{"static [N,C,H,W] or [N,H,W,C]"},
-                    .actual = detail::format_shape(input.shape),
-                })};
 }
 
 Result<std::vector<float>> decode_classification_scores(
-    const detail::RawOutputTensors& outputs) {
-    if (outputs.empty()) {
+    const detail::RawOutputTensors& outputs,
+    const ClassificationDecodeSpec& decode_spec) {
+    if (decode_spec.output_index >= outputs.size()) {
         return {
             .error = make_error(
                 ErrorCode::shape_mismatch,
-                "Classification decoder requires at least one output tensor.",
-                ErrorContext{.component =
-                                 std::string{"classification_decoder"}})};
+                "Classification binding points to a missing output tensor.",
+                ErrorContext{
+                    .component = std::string{"classification_decoder"},
+                    .expected =
+                        std::to_string(decode_spec.output_index + 1) +
+                        " output tensors",
+                    .actual = std::to_string(outputs.size()) +
+                              " output tensors",
+                })};
     }
 
     const auto values_result = detail::copy_float_tensor_data(
-        outputs.front(), "classification_decoder");
+        outputs[decode_spec.output_index], "classification_decoder");
     if (!values_result.ok()) {
         return {.error = values_result.error};
     }
 
-    const TensorInfo& info = outputs.front().info;
-    std::size_t class_count = 0;
-    if (info.shape.rank() == 1 && info.shape.dims[0].value.has_value()) {
-        class_count = static_cast<std::size_t>(*info.shape.dims[0].value);
-    }
-    else if (info.shape.rank() == 2 && info.shape.dims[0].value.has_value() &&
-             info.shape.dims[1].value.has_value() &&
-             *info.shape.dims[0].value == 1) {
-        class_count = static_cast<std::size_t>(*info.shape.dims[1].value);
-    }
-    else if (info.shape.rank() == 3 && info.shape.dims[0].value.has_value() &&
-             info.shape.dims[1].value.has_value() &&
-             info.shape.dims[2].value.has_value() &&
-             *info.shape.dims[0].value == 1 && *info.shape.dims[1].value == 1) {
-        class_count = static_cast<std::size_t>(*info.shape.dims[2].value);
-    }
-    else {
-        return {
-            .error = make_error(
-                ErrorCode::shape_mismatch,
-                "Classification decoder cannot interpret output tensor shape.",
-                ErrorContext{
-                    .component = std::string{"classification_decoder"},
-                    .output_name = info.name,
-                    .expected = std::string{"[C], [1,C], or [1,1,C]"},
-                    .actual = detail::format_shape(info.shape),
-                })};
-    }
-
-    if (class_count > values_result.value->size()) {
+    const TensorInfo& info = outputs[decode_spec.output_index].info;
+    if (decode_spec.class_count > values_result.value->size()) {
         return {.error = make_error(
                     ErrorCode::shape_mismatch,
                     "Classification output shape exceeds tensor payload.",
                     ErrorContext{
                         .component = std::string{"classification_decoder"},
                         .output_name = info.name,
-                        .expected = std::to_string(class_count),
+                        .expected = std::to_string(decode_spec.class_count),
                         .actual =
                             std::to_string(values_result.value->size()),
                     })};
     }
 
+    std::vector<float> scores(values_result.value->begin(),
+                              values_result.value->begin() +
+                                  decode_spec.class_count);
+    if (decode_spec.score_kind == ClassificationScoreKind::logits) {
+        softmax_in_place(scores);
+    }
+
     return {
-        .value = std::vector<float>(values_result.value->begin(),
-                                    values_result.value->begin() + class_count),
+        .value = std::move(scores),
         .error = {}};
 }
 
@@ -213,25 +220,11 @@ InferenceMetadata make_metadata(const detail::RuntimeEngine& engine,
 class RuntimeClassifier final : public Classifier
 {
 public:
-    RuntimeClassifier(ModelSpec spec, SessionOptions session,
-                      ClassificationOptions options)
-        : spec_(std::move(spec)),
-          session_(std::move(session)),
-          options_(std::move(options)) {
-        auto engine_result = detail::RuntimeEngine::create(spec_, session_);
-        if (engine_result.ok()) {
-            engine_ = std::shared_ptr<detail::RuntimeEngine>(
-                std::move(*engine_result.value));
-        }
-        else {
-            init_error_ = std::move(engine_result.error);
-        }
-    }
-
-    RuntimeClassifier(ModelSpec spec, SessionOptions session,
+    RuntimeClassifier(AdapterBindingSpec binding, SessionOptions session,
                       ClassificationOptions options,
                       std::shared_ptr<detail::RuntimeEngine> engine)
-        : spec_(std::move(spec)),
+        : binding_(std::move(binding)),
+          spec_(binding_.model),
           session_(std::move(session)),
           options_(std::move(options)),
           engine_(std::move(engine)) {
@@ -240,8 +233,25 @@ public:
                 ErrorCode::invalid_state,
                 "Classification runtime requires a valid shared engine.",
                 ErrorContext{.component = std::string{"classification"}});
+            return;
         }
+
+        auto decode_spec_result =
+            classification_decode_spec_from_binding(binding_);
+        if (!decode_spec_result.ok()) {
+            init_error_ = std::move(decode_spec_result.error);
+            return;
+        }
+
+        decode_spec_ = *decode_spec_result.value;
     }
+
+    RuntimeClassifier(ModelSpec spec, SessionOptions session,
+                      ClassificationOptions options, Error init_error)
+        : spec_(std::move(spec)),
+          session_(std::move(session)),
+          options_(std::move(options)),
+          init_error_(std::move(init_error)) {}
 
     const ModelSpec& model() const noexcept override { return spec_; }
 
@@ -265,21 +275,8 @@ public:
             };
         }
 
-        auto input_size_result =
-            resolve_input_size(spec_, *input_info_result.value);
-        if (!input_size_result.ok()) {
-            return ClassificationResult{
-                .classes = {},
-                .scores = {},
-                .metadata = InferenceMetadata{.task = TaskKind::classify},
-                .error = input_size_result.error,
-            };
-        }
-
-        const PreprocessPolicy policy =
-            make_classification_preprocess_policy(*input_size_result.value);
         auto preprocess_result = detail::preprocess_image(
-            image, policy, input_info_result.value->name);
+            image, binding_.preprocess, input_info_result.value->name);
         if (!preprocess_result.ok()) {
             return ClassificationResult{
                 .classes = {},
@@ -305,7 +302,7 @@ public:
         }
 
         auto decoded_scores_result =
-            decode_classification_scores(*outputs_result.value);
+            decode_classification_scores(*outputs_result.value, decode_spec_);
         if (!decoded_scores_result.ok()) {
             return ClassificationResult{
                 .classes = {},
@@ -327,10 +324,12 @@ public:
     }
 
 private:
+    AdapterBindingSpec binding_{};
     ModelSpec spec_;
     SessionOptions session_;
     ClassificationOptions options_;
     std::shared_ptr<detail::RuntimeEngine> engine_{};
+    ClassificationDecodeSpec decode_spec_{};
     Error init_error_{};
 };
 
@@ -340,18 +339,37 @@ std::unique_ptr<Classifier> create_classifier(ModelSpec spec,
                                               SessionOptions session,
                                               ClassificationOptions options) {
     spec.task = TaskKind::classify;
+    auto binding_result =
+        adapters::ultralytics::probe_classification_model(spec, session);
+    if (!binding_result.ok()) {
+        return std::make_unique<RuntimeClassifier>(
+            std::move(spec), std::move(session), std::move(options),
+            std::move(binding_result.error));
+    }
+
+    auto engine_result =
+        detail::RuntimeEngine::create(binding_result.value->model, session);
+    if (!engine_result.ok()) {
+        return std::make_unique<RuntimeClassifier>(
+            binding_result.value->model, std::move(session), std::move(options),
+            std::move(engine_result.error));
+    }
+
     return std::make_unique<RuntimeClassifier>(
-        std::move(spec), std::move(session), std::move(options));
+        std::move(*binding_result.value), std::move(session),
+        std::move(options),
+        std::shared_ptr<detail::RuntimeEngine>(std::move(*engine_result.value)));
 }
 
 namespace detail
 {
 
 std::unique_ptr<Classifier> create_classifier_with_engine(
-    ModelSpec spec, SessionOptions session, ClassificationOptions options,
+    AdapterBindingSpec binding, SessionOptions session,
+    ClassificationOptions options,
     std::shared_ptr<RuntimeEngine> engine) {
-    spec.task = TaskKind::classify;
-    return std::make_unique<RuntimeClassifier>(std::move(spec),
+    binding.model.task = TaskKind::classify;
+    return std::make_unique<RuntimeClassifier>(std::move(binding),
                                                std::move(session),
                                                std::move(options),
                                                std::move(engine));

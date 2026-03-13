@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "yolo/adapters/ultralytics.hpp"
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
 
@@ -16,6 +17,10 @@ namespace yolo
 {
 namespace
 {
+using adapters::ultralytics::AdapterBindingSpec;
+using adapters::ultralytics::DetectionBindingSpec;
+using adapters::ultralytics::DetectionHeadLayout;
+using adapters::ultralytics::OutputRole;
 
 struct DetectionCandidate
 {
@@ -68,135 +73,51 @@ Result<TensorInfo> select_primary_input(const detail::RuntimeEngine& engine) {
     return {.value = inputs.front(), .error = {}};
 }
 
-bool is_channel_dimension(const TensorDimension& dim) {
-    return dim.value.has_value() &&
-           (*dim.value == 1 || *dim.value == 3 || *dim.value == 4);
-}
-
-Result<Size2i> resolve_input_size(const ModelSpec& spec,
-                                  const TensorInfo& input) {
-    if (spec.input_size.has_value()) {
-        return {.value = *spec.input_size, .error = {}};
-    }
-
-    if (input.shape.rank() != 4) {
+Result<DetectionDecodeSpec> detection_decode_spec_from_binding(
+    const AdapterBindingSpec& binding) {
+    if (!binding.detection.has_value()) {
         return {.error = make_error(
-                    ErrorCode::shape_mismatch,
-                    "Detection input tensor must be rank-4.",
-                    ErrorContext{
-                        .component = std::string{"detection"},
-                        .input_name = input.name,
-                        .expected = std::string{"[N,C,H,W] or [N,H,W,C]"},
-                        .actual = detail::format_shape(input.shape),
-                    })};
+                    ErrorCode::invalid_state,
+                    "Detection runtime requires a detection binding spec.",
+                    ErrorContext{.component = std::string{"detection"}})};
     }
 
-    const auto& dims = input.shape.dims;
-    if (is_channel_dimension(dims[1]) && dims[2].value.has_value() &&
-        dims[3].value.has_value()) {
-        return {.value = Size2i{static_cast<int>(*dims[3].value),
-                                static_cast<int>(*dims[2].value)},
-                .error = {}};
+    if (binding.outputs.empty()) {
+        return {.error = make_error(
+                    ErrorCode::invalid_state,
+                    "Detection runtime requires at least one bound output.",
+                    ErrorContext{.component = std::string{"detection"}})};
     }
 
-    if (dims[1].value.has_value() && dims[2].value.has_value() &&
-        is_channel_dimension(dims[3])) {
-        return {.value = Size2i{static_cast<int>(*dims[2].value),
-                                static_cast<int>(*dims[1].value)},
-                .error = {}};
+    const DetectionBindingSpec& detection = *binding.detection;
+    DetectionLayout layout = DetectionLayout::xywh_class_scores_last;
+    switch (detection.layout) {
+        case DetectionHeadLayout::xywh_class_scores_last:
+            layout = DetectionLayout::xywh_class_scores_last;
+            break;
+        case DetectionHeadLayout::xywh_class_scores_first:
+            layout = DetectionLayout::xywh_class_scores_first;
+            break;
+        case DetectionHeadLayout::xyxy_score_class:
+            layout = DetectionLayout::xyxy_score_class;
+            break;
     }
 
-    return {.error = make_error(
-                ErrorCode::shape_mismatch,
-                "Detection input tensor has unsupported spatial layout.",
-                ErrorContext{
-                    .component = std::string{"detection"},
-                    .input_name = input.name,
-                    .expected = std::string{"static [N,C,H,W] or [N,H,W,C]"},
-                    .actual = detail::format_shape(input.shape),
-                })};
-}
-
-Result<DetectionDecodeSpec> infer_detection_decode_spec(
-    const detail::RawOutputTensors& outputs, const ModelSpec& spec) {
-    if (outputs.empty()) {
-        return {
-            .error = make_error(
-                ErrorCode::shape_mismatch,
-                "Detection decoder requires at least one output tensor.",
-                ErrorContext{.component = std::string{"detection_decoder"}})};
-    }
-
-    const TensorInfo& info = outputs.front().info;
-    if (info.shape.rank() == 3 && info.shape.dims[0].value.has_value() &&
-        *info.shape.dims[0].value == 1 &&
-        info.shape.dims[1].value.has_value() &&
-        info.shape.dims[2].value.has_value()) {
-        const std::size_t proposals =
-            static_cast<std::size_t>(*info.shape.dims[1].value);
-        const std::size_t attributes =
-            static_cast<std::size_t>(*info.shape.dims[2].value);
-        if (attributes >= 6) {
-            const std::size_t class_count =
-                spec.class_count.value_or(attributes - 4);
-            return {.value =
-                        DetectionDecodeSpec{
-                            .output_index = 0,
-                            .layout = DetectionLayout::xywh_class_scores_last,
-                            .proposal_count = proposals,
-                            .class_count = class_count,
-                        },
-                    .error = {}};
+    std::size_t output_index = binding.outputs.front().index;
+    for (const auto& output : binding.outputs) {
+        if (output.role == OutputRole::predictions) {
+            output_index = output.index;
+            break;
         }
     }
 
-    if (info.shape.rank() == 3 && info.shape.dims[0].value.has_value() &&
-        *info.shape.dims[0].value == 1 &&
-        info.shape.dims[1].value.has_value() &&
-        info.shape.dims[2].value.has_value()) {
-        const std::size_t channels =
-            static_cast<std::size_t>(*info.shape.dims[1].value);
-        const std::size_t proposals =
-            static_cast<std::size_t>(*info.shape.dims[2].value);
-        if (channels >= 6) {
-            const std::size_t class_count =
-                spec.class_count.value_or(channels - 4);
-            return {.value =
-                        DetectionDecodeSpec{
-                            .output_index = 0,
-                            .layout = DetectionLayout::xywh_class_scores_first,
-                            .proposal_count = proposals,
-                            .class_count = class_count,
-                        },
-                    .error = {}};
-        }
-    }
-
-    if (info.shape.rank() == 2 && info.shape.dims[0].value.has_value() &&
-        info.shape.dims[1].value.has_value() &&
-        *info.shape.dims[1].value >= 6) {
-        return {.value =
-                    DetectionDecodeSpec{
-                        .output_index = 0,
-                        .layout = DetectionLayout::xyxy_score_class,
-                        .proposal_count =
-                            static_cast<std::size_t>(*info.shape.dims[0].value),
-                        .class_count = spec.class_count.value_or(0),
-                    },
-                .error = {}};
-    }
-
-    return {.error = make_error(
-                ErrorCode::shape_mismatch,
-                "No supported detection output shape family matched.",
-                ErrorContext{
-                    .component = std::string{"detection_decoder"},
-                    .output_name = info.name,
-                    .expected =
-                        std::string{
-                            "[1,N,4+C], [1,4+C,N], or [N,6+] detection output"},
-                    .actual = detail::format_shape(info.shape),
-                })};
+    return {.value = DetectionDecodeSpec{
+                .output_index = output_index,
+                .layout = layout,
+                .proposal_count = detection.proposal_count,
+                .class_count = detection.class_count,
+            },
+            .error = {}};
 }
 
 RectF xywh_to_rect(float cx, float cy, float w, float h) {
@@ -210,6 +131,20 @@ RectF xywh_to_rect(float cx, float cy, float w, float h) {
 
 Result<std::vector<DetectionCandidate>> decode_detections(
     const detail::RawOutputTensors& outputs, const DetectionDecodeSpec& spec) {
+    if (spec.output_index >= outputs.size()) {
+        return {.error = make_error(
+                    ErrorCode::shape_mismatch,
+                    "Detection binding points to a missing output tensor.",
+                    ErrorContext{
+                        .component = std::string{"detection_decoder"},
+                        .expected =
+                            std::to_string(spec.output_index + 1) +
+                            " output tensors",
+                        .actual = std::to_string(outputs.size()) +
+                                  " output tensors",
+                    })};
+    }
+
     const auto float_values_result = detail::copy_float_tensor_data(
         outputs[spec.output_index], "detection_decoder");
     if (!float_values_result.ok()) {
@@ -456,25 +391,11 @@ InferenceMetadata make_metadata(const detail::RuntimeEngine& engine,
 class RuntimeDetector final : public Detector
 {
 public:
-    RuntimeDetector(ModelSpec spec, SessionOptions session,
-                    DetectionOptions options)
-        : spec_(std::move(spec)),
-          session_(std::move(session)),
-          options_(std::move(options)) {
-        auto engine_result = detail::RuntimeEngine::create(spec_, session_);
-        if (engine_result.ok()) {
-            engine_ = std::shared_ptr<detail::RuntimeEngine>(
-                std::move(*engine_result.value));
-        }
-        else {
-            init_error_ = std::move(engine_result.error);
-        }
-    }
-
-    RuntimeDetector(ModelSpec spec, SessionOptions session,
+    RuntimeDetector(AdapterBindingSpec binding, SessionOptions session,
                     DetectionOptions options,
                     std::shared_ptr<detail::RuntimeEngine> engine)
-        : spec_(std::move(spec)),
+        : binding_(std::move(binding)),
+          spec_(binding_.model),
           session_(std::move(session)),
           options_(std::move(options)),
           engine_(std::move(engine)) {
@@ -483,8 +404,24 @@ public:
                 ErrorCode::invalid_state,
                 "Detection runtime requires a valid shared engine.",
                 ErrorContext{.component = std::string{"detection"}});
+            return;
         }
+
+        auto decode_spec_result = detection_decode_spec_from_binding(binding_);
+        if (!decode_spec_result.ok()) {
+            init_error_ = std::move(decode_spec_result.error);
+            return;
+        }
+
+        decode_spec_ = *decode_spec_result.value;
     }
+
+    RuntimeDetector(ModelSpec spec, SessionOptions session,
+                    DetectionOptions options, Error init_error)
+        : spec_(std::move(spec)),
+          session_(std::move(session)),
+          options_(std::move(options)),
+          init_error_(std::move(init_error)) {}
 
     const ModelSpec& model() const noexcept override { return spec_; }
 
@@ -501,18 +438,8 @@ public:
                                    input_info_result.error};
         }
 
-        auto input_size_result =
-            resolve_input_size(spec_, *input_info_result.value);
-        if (!input_size_result.ok()) {
-            return DetectionResult{{},
-                                   InferenceMetadata{.task = TaskKind::detect},
-                                   input_size_result.error};
-        }
-
-        const PreprocessPolicy policy =
-            make_detection_preprocess_policy(*input_size_result.value);
         auto preprocess_result = detail::preprocess_image(
-            image, policy, input_info_result.value->name);
+            image, binding_.preprocess, input_info_result.value->name);
         if (!preprocess_result.ok()) {
             return DetectionResult{{},
                                    InferenceMetadata{.task = TaskKind::detect},
@@ -531,17 +458,8 @@ public:
                 outputs_result.error};
         }
 
-        auto decode_spec_result =
-            infer_detection_decode_spec(*outputs_result.value, spec_);
-        if (!decode_spec_result.ok()) {
-            return DetectionResult{
-                {},
-                make_metadata(*engine_, *preprocess_result.value, session_),
-                decode_spec_result.error};
-        }
-
         auto decoded_result =
-            decode_detections(*outputs_result.value, *decode_spec_result.value);
+            decode_detections(*outputs_result.value, decode_spec_);
         if (!decoded_result.ok()) {
             return DetectionResult{
                 {},
@@ -560,10 +478,12 @@ public:
     }
 
 private:
+    AdapterBindingSpec binding_{};
     ModelSpec spec_;
     SessionOptions session_;
     DetectionOptions options_;
     std::shared_ptr<detail::RuntimeEngine> engine_{};
+    DetectionDecodeSpec decode_spec_{};
     Error init_error_{};
 };
 
@@ -573,18 +493,36 @@ std::unique_ptr<Detector> create_detector(ModelSpec spec,
                                           SessionOptions session,
                                           DetectionOptions options) {
     spec.task = TaskKind::detect;
+    auto binding_result =
+        adapters::ultralytics::probe_detection_model(spec, session);
+    if (!binding_result.ok()) {
+        return std::make_unique<RuntimeDetector>(
+            std::move(spec), std::move(session), std::move(options),
+            std::move(binding_result.error));
+    }
+
+    auto engine_result =
+        detail::RuntimeEngine::create(binding_result.value->model, session);
+    if (!engine_result.ok()) {
+        return std::make_unique<RuntimeDetector>(
+            binding_result.value->model, std::move(session), std::move(options),
+            std::move(engine_result.error));
+    }
+
     return std::make_unique<RuntimeDetector>(
-        std::move(spec), std::move(session), std::move(options));
+        std::move(*binding_result.value), std::move(session),
+        std::move(options),
+        std::shared_ptr<detail::RuntimeEngine>(std::move(*engine_result.value)));
 }
 
 namespace detail
 {
 
 std::unique_ptr<Detector> create_detector_with_engine(
-    ModelSpec spec, SessionOptions session, DetectionOptions options,
+    AdapterBindingSpec binding, SessionOptions session, DetectionOptions options,
     std::shared_ptr<RuntimeEngine> engine) {
-    spec.task = TaskKind::detect;
-    return std::make_unique<RuntimeDetector>(std::move(spec),
+    binding.model.task = TaskKind::detect;
+    return std::make_unique<RuntimeDetector>(std::move(binding),
                                              std::move(session),
                                              std::move(options),
                                              std::move(engine));

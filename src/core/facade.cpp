@@ -368,11 +368,11 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
 
     if (binding.model.task == TaskKind::detect) {
         detector = detail::create_detector_with_engine(
-            binding.model, session, options.detection, shared_engine);
+            binding, session, options.detection, shared_engine);
     }
     else if (binding.model.task == TaskKind::classify) {
         classifier = detail::create_classifier_with_engine(
-            binding.model, session, options.classification, shared_engine);
+            binding, session, options.classification, shared_engine);
     }
     else if (binding.model.task == TaskKind::seg) {
         segmenter =
