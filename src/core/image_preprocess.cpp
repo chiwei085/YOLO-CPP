@@ -1,4 +1,5 @@
 #include "yolo/detail/image_preprocess.hpp"
+#include "yolo/detail/classification_resize.hpp"
 
 #include <algorithm>
 #include <array>
@@ -33,8 +34,8 @@ PreprocessPolicy make_classification_preprocess_policy(Size2i target_size) {
         .normalize =
             NormalizeSpec{
                 .input_scale = 255.0F,
-                .mean = {0.485F, 0.456F, 0.406F, 0.0F},
-                .std = {0.229F, 0.224F, 0.225F, 1.0F},
+                .mean = {0.0F, 0.0F, 0.0F, 0.0F},
+                .std = {1.0F, 1.0F, 1.0F, 1.0F},
             },
         .tensor_layout = TensorLayout::nchw,
         .pad_value = {0.0F, 0.0F, 0.0F, 0.0F},
@@ -155,6 +156,13 @@ float normalize_channel(float value, const NormalizeSpec& normalize,
     return (scaled - normalize.mean[channel]) / normalize.std[channel];
 }
 
+std::size_t image_index(int width, int channels, int x, int y, int c) {
+    return (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+            static_cast<std::size_t>(x)) *
+               static_cast<std::size_t>(channels) +
+           static_cast<std::size_t>(c);
+}
+
 PreprocessRecord build_record(const ImageView& image,
                               const PreprocessPolicy& policy) {
     PreprocessRecord record{};
@@ -184,15 +192,22 @@ PreprocessRecord build_record(const ImageView& image,
                           pad_y - pad_y / 2};
     }
     else if (policy.resize_mode == ResizeMode::resize_crop) {
-        const float scale = std::max(
-            static_cast<float>(policy.target_size.width) / image.size.width,
-            static_cast<float>(policy.target_size.height) / image.size.height);
+        float scale = 1.0F;
+        if (image.size.width >= image.size.height) {
+            scale = static_cast<float>(policy.target_size.height) /
+                    static_cast<float>(image.size.height);
+            record.resized_size = {
+                std::max(1, static_cast<int>(image.size.width * scale)),
+                policy.target_size.height};
+        }
+        else {
+            scale = static_cast<float>(policy.target_size.width) /
+                    static_cast<float>(image.size.width);
+            record.resized_size = {
+                policy.target_size.width,
+                std::max(1, static_cast<int>(image.size.height * scale))};
+        }
         record.resize_scale = {scale, scale};
-        record.resized_size = {
-            std::max(1,
-                     static_cast<int>(std::lround(image.size.width * scale))),
-            std::max(1,
-                     static_cast<int>(std::lround(image.size.height * scale)))};
         record.crop = RectI{
             .x = std::max(
                 0, (record.resized_size.width - policy.target_size.width) / 2),
@@ -263,6 +278,15 @@ Result<PreprocessedImage> preprocess_image(const ImageView& image,
         *preprocessed.tensor.info.shape.element_count();
     preprocessed.tensor.values.resize(element_count);
     float* tensor = preprocessed.tensor.values.data();
+    std::optional<ImageDebugBuffer> resized_image{};
+    if (policy.resize_mode == ResizeMode::resize_crop) {
+        auto resized_result = resize_classification_image(
+            image, policy, preprocessed.record.resized_size);
+        if (!resized_result.ok()) {
+            return {.error = resized_result.error};
+        }
+        resized_image = std::move(*resized_result.value);
+    }
 
     const auto write_value = [&](int x, int y, int c, float value) {
         std::size_t index = 0;
@@ -304,16 +328,18 @@ Result<PreprocessedImage> preprocess_image(const ImageView& image,
                 }
             }
             else if (policy.resize_mode == ResizeMode::resize_crop) {
-                source_x =
-                    (static_cast<float>(x + preprocessed.record.crop->x) +
-                     0.5F) /
-                        preprocessed.record.resize_scale.x -
-                    0.5F;
-                source_y =
-                    (static_cast<float>(y + preprocessed.record.crop->y) +
-                     0.5F) /
-                        preprocessed.record.resize_scale.y -
-                    0.5F;
+                const int crop_x = preprocessed.record.crop->x + x;
+                const int crop_y = preprocessed.record.crop->y + y;
+                for (int c = 0; c < channels; ++c) {
+                    const float value = resized_image->values[image_index(
+                        preprocessed.record.resized_size.width, channels, crop_x,
+                        crop_y, c)];
+                    write_value(x, y, c,
+                                normalize_channel(
+                                    value, policy.normalize,
+                                    static_cast<std::size_t>(c)));
+                }
+                continue;
             }
             else {
                 source_x =
@@ -344,6 +370,63 @@ Result<PreprocessedImage> preprocess_image(const ImageView& image,
     }
 
     return {.value = std::move(preprocessed), .error = {}};
+}
+
+Result<ClassificationPreprocessTrace> trace_classification_preprocess(
+    const ImageView& image, const PreprocessPolicy& policy,
+    std::string_view input_name) {
+    if (policy.resize_mode != ResizeMode::resize_crop) {
+        return {.error = make_error(
+                    ErrorCode::invalid_argument,
+                    "Classification preprocess trace expects resize-crop "
+                    "policy.",
+                    ErrorContext{
+                        .component = std::string{"image_preprocess"}})};
+    }
+
+    auto preprocessed_result = preprocess_image(image, policy, input_name);
+    if (!preprocessed_result.ok()) {
+        return {.error = preprocessed_result.error};
+    }
+
+    const PreprocessRecord& record = preprocessed_result.value->record;
+    const int channels = output_channel_count(policy.output_format);
+
+    ClassificationPreprocessTrace trace{};
+    trace.source_size = image.size;
+    trace.target_size = policy.target_size;
+    trace.resized_size = record.resized_size;
+    trace.crop = record.crop;
+    trace.record = record;
+    trace.tensor = preprocessed_result.value->tensor;
+    auto resized_result =
+        resize_classification_image(image, policy, record.resized_size);
+    if (!resized_result.ok()) {
+        return {.error = resized_result.error};
+    }
+    trace.resized_image = std::move(*resized_result.value);
+
+    trace.cropped_image.size = policy.target_size;
+    trace.cropped_image.channels = channels;
+    trace.cropped_image.values.resize(
+        static_cast<std::size_t>(policy.target_size.width) *
+        static_cast<std::size_t>(policy.target_size.height) *
+        static_cast<std::size_t>(channels));
+
+    for (int y = 0; y < policy.target_size.height; ++y) {
+        for (int x = 0; x < policy.target_size.width; ++x) {
+            const int crop_x = record.crop->x + x;
+            const int crop_y = record.crop->y + y;
+            for (int c = 0; c < channels; ++c) {
+                trace.cropped_image.values[image_index(
+                    policy.target_size.width, channels, x, y, c)] =
+                    trace.resized_image.values[image_index(
+                        record.resized_size.width, channels, crop_x, crop_y, c)];
+            }
+        }
+    }
+
+    return {.value = std::move(trace), .error = {}};
 }
 
 }  // namespace yolo::detail

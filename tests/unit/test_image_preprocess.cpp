@@ -53,7 +53,7 @@ TEST_CASE("classification preprocess uses resize-crop policy",
     CHECK(result.value->record.crop->y == 1);
     REQUIRE(result.value->tensor.values.size() == 3 * 2 * 2);
 
-    const float expected = ((20.0F / 255.0F) - 0.485F) / 0.229F;
+    const float expected = 20.0F / 255.0F;
     CHECK(result.value->tensor.values[0] == Catch::Approx(expected).margin(1e-4));
 }
 

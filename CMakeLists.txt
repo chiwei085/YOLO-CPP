@@ -16,6 +16,7 @@ add_library(yolo_cpp
   src/core/facade.cpp
   src/core/onnx_session.cpp
   src/core/image_preprocess.cpp
+  src/core/classification_resize.cpp
   src/core/pipeline_info_utils.cpp
   src/core/tensor_utils.cpp
   src/core/task_runtime_utils.cpp
@@ -139,6 +140,7 @@ if(YOLO_CPP_BUILD_DIAGNOSTICS AND onnxruntime_FOUND)
   target_include_directories(
     yolo_cpp_parity_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples
   )
+
 endif()
 
 if(BUILD_TESTING)

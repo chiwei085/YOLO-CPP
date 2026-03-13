@@ -2,6 +2,9 @@ build/
 .cache/
 vcpkg_installed/
 CMakeUserPresets.json
+tests/__pycache__/
+tests/parity/__pycache__/
+tests/assets/baselines/
 
 *.zip
 # YOLO model weight

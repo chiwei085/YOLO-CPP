@@ -18,12 +18,18 @@ Current scope:
 - classification parity: `tests/assets/models/yolov8n-cls.onnx` on `test1.jpg` and `test2.jpg`
 - segmentation parity: `tests/assets/models/yolov8n-seg.onnx` on `test1.jpg` when that model exists
 
+Current status:
+
+- detect parity: aligned
+- classify parity: aligned
+- segmentation parity: pending once `tests/assets/models/yolov8n-seg.onnx` is available
+
 Runner flow:
 
 1. Build the JSON dump tool:
    `cmake --build build/dev --target yolo_cpp_parity_dump`
 2. Generate Python and C++ summaries:
-   `python tests/parity/run_parity.py --check`
+   `.venv-tests/bin/python tests/parity/run_parity.py --check`
 3. Inspect `tests/assets/baselines/parity/manifest.json` plus the generated
    `*_python.json` and `*_cpp.json` files.
 

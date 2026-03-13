@@ -15,6 +15,9 @@ include(Catch)
 set(YOLO_CPP_TEST_COMMON_SOURCES
   test_utils.hpp
   unit/test_classification_semantics.cpp
+  unit/test_classification_preprocess_contract.cpp
+  unit/test_classification_resize_geometry.cpp
+  unit/test_classification_center_crop_geometry.cpp
   unit/test_image_preprocess.cpp
   unit/test_task_common_input_selection.cpp
   unit/test_task_common_metadata.cpp
@@ -30,6 +33,8 @@ set(YOLO_CPP_TEST_COMMON_SOURCES
   component/test_detection_postprocess_nms.cpp
   component/test_detection_postprocess_restore.cpp
   component/test_classification_decode.cpp
+  component/test_classification_resize_reference.cpp
+  component/test_classification_resize_numerics.cpp
   component/test_segmentation_decode_contract.cpp
   component/test_segmentation_mask_projection.cpp
   adapter/test_ultralytics_detect_probe.cpp

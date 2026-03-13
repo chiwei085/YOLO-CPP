@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "test_utils.hpp"
@@ -21,6 +22,13 @@ TEST_CASE("ultralytics classify probe infers logits semantics from output name",
     CHECK(result.value->model.class_count == 1000);
     CHECK(result.value->classification->score_kind ==
           yolo::adapters::ultralytics::ClassificationScoreKind::logits);
+    CHECK(result.value->preprocess.resize_mode == yolo::ResizeMode::resize_crop);
+    CHECK(result.value->preprocess.normalize.mean[0] == Catch::Approx(0.0F));
+    CHECK(result.value->preprocess.normalize.mean[1] == Catch::Approx(0.0F));
+    CHECK(result.value->preprocess.normalize.mean[2] == Catch::Approx(0.0F));
+    CHECK(result.value->preprocess.normalize.std[0] == Catch::Approx(1.0F));
+    CHECK(result.value->preprocess.normalize.std[1] == Catch::Approx(1.0F));
+    CHECK(result.value->preprocess.normalize.std[2] == Catch::Approx(1.0F));
 }
 
 TEST_CASE("ultralytics classify probe rejects non-image inputs",

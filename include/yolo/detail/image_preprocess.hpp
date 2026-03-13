@@ -28,8 +28,32 @@ struct PreprocessedImage
     PreprocessRecord record{};
 };
 
+struct ImageDebugBuffer
+{
+    Size2i size{};
+    int channels{0};
+    std::vector<float> values{};  // HWC order
+};
+
+struct ClassificationPreprocessTrace
+{
+    Size2i source_size{};
+    Size2i target_size{};
+    Size2i resized_size{};
+    std::optional<RectI> crop{};
+    ImageDebugBuffer resized_image{};
+    ImageDebugBuffer cropped_image{};
+    FloatTensor tensor{};
+    PreprocessRecord record{};
+};
+
 [[nodiscard]] Result<PreprocessedImage> preprocess_image(
     const ImageView& image, const PreprocessPolicy& policy,
     std::string_view input_name = "images");
+
+[[nodiscard]] Result<ClassificationPreprocessTrace>
+trace_classification_preprocess(const ImageView& image,
+                                const PreprocessPolicy& policy,
+                                std::string_view input_name = "images");
 
 }  // namespace yolo::detail
