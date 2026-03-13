@@ -76,13 +76,15 @@ Result<AdapterBindingSpec> build_detection_binding(
             static_cast<std::size_t>(*output.shape.dims[1].value);
         const std::size_t second =
             static_cast<std::size_t>(*output.shape.dims[2].value);
+        const std::size_t minimum_width = 6;
 
-        if (second >= 6) {
+        if (second >= minimum_width &&
+            (first < minimum_width || first >= second)) {
             detection.layout = DetectionHeadLayout::xywh_class_scores_last;
             detection.proposal_count = first;
             detection.class_count = model.class_count.value_or(second - 4);
         }
-        else if (first >= 6) {
+        else if (first >= minimum_width) {
             detection.layout = DetectionHeadLayout::xywh_class_scores_first;
             detection.proposal_count = second;
             detection.class_count = model.class_count.value_or(first - 4);

@@ -57,16 +57,19 @@ def task_configs(root: Path) -> dict[str, dict[str, object]]:
     return {
         "detect": {
             "task": "detect",
+            "ultralytics_task": "detect",
             "model": models / "yolov8n.onnx",
             "images": [images / "test1.jpg", images / "test2.jpg"],
         },
         "classify": {
             "task": "classify",
+            "ultralytics_task": "classify",
             "model": models / "yolov8n-cls.onnx",
             "images": [images / "test1.jpg", images / "test2.jpg"],
         },
         "seg": {
             "task": "seg",
+            "ultralytics_task": "segment",
             "model": models / "yolov8n-seg.onnx",
             "images": [images / "test1.jpg"],
         },
@@ -179,7 +182,12 @@ def cpp_summary(
         capture_output=True,
         text=True,
     )
-    return json.loads(completed.stdout)
+    json_start = completed.stdout.find('{"task"')
+    if json_start < 0:
+        raise RuntimeError(
+            f"C++ parity tool did not emit JSON. stderr was:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout[json_start:])
 
 
 def build_ppm_inputs(image_module, image_paths: list[Path], scratch_dir: Path) -> list[Path]:
@@ -249,7 +257,7 @@ def main() -> int:
                 continue
 
             ppm_paths = build_ppm_inputs(image_module, image_paths, scratch_dir)
-            model = yolo_model(str(model_path))
+            model = yolo_model(str(model_path), task=str(config["ultralytics_task"]))
 
             if task == "detect":
                 python_payload = {

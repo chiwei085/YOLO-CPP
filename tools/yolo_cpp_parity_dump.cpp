@@ -5,6 +5,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -171,10 +172,11 @@ int main(int argc, char** argv) {
 
     const std::unique_ptr<yolo::Pipeline>& pipeline = *pipeline_result.value;
 
-    std::cout << "{\"task\":\"" << escape_json(argv[1]) << "\",\"images\":[";
+    std::ostringstream json{};
+    json << "{\"task\":\"" << escape_json(argv[1]) << "\",\"images\":[";
     for (int index = 3; index < argc; ++index) {
         if (index > 3) {
-            std::cout << ',';
+            json << ',';
         }
 
         auto image_result = examples::load_ppm_image(argv[index]);
@@ -182,30 +184,31 @@ int main(int argc, char** argv) {
             return examples::print_error(image_result.error);
         }
 
-        std::cout << "{\"image\":\"" << escape_json(argv[index]) << "\",";
+        json << "{\"image\":\"" << escape_json(argv[index]) << "\",";
         if (*task == yolo::TaskKind::detect) {
             const auto result = pipeline->detect(image_result.value->view());
             if (!result.ok()) {
                 return examples::print_error(result.error);
             }
-            write_detection_result(std::cout, result);
+            write_detection_result(json, result);
         }
         else if (*task == yolo::TaskKind::classify) {
             const auto result = pipeline->classify(image_result.value->view());
             if (!result.ok()) {
                 return examples::print_error(result.error);
             }
-            write_classification_result(std::cout, result);
+            write_classification_result(json, result);
         }
         else {
             const auto result = pipeline->segment(image_result.value->view());
             if (!result.ok()) {
                 return examples::print_error(result.error);
             }
-            write_segmentation_result(std::cout, result);
+            write_segmentation_result(json, result);
         }
-        std::cout << '}';
+        json << '}';
     }
-    std::cout << "]}\n";
+    json << "]}\n";
+    std::cout << json.str();
     return EXIT_SUCCESS;
 }
