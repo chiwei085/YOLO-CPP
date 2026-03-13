@@ -122,6 +122,36 @@ std::size_t proto_index(const detail::ProtoMaskTensor& proto,
            static_cast<std::size_t>(x);
 }
 
+float bilinear_sample_plane(const std::vector<float>& plane, const Size2i& size,
+                            float x, float y) {
+    if (plane.empty() || size.empty()) {
+        return 0.0F;
+    }
+
+    const float clamped_x =
+        std::clamp(x, 0.0F, static_cast<float>(size.width - 1));
+    const float clamped_y =
+        std::clamp(y, 0.0F, static_cast<float>(size.height - 1));
+    const int x0 = static_cast<int>(std::floor(clamped_x));
+    const int y0 = static_cast<int>(std::floor(clamped_y));
+    const int x1 = std::min(x0 + 1, size.width - 1);
+    const int y1 = std::min(y0 + 1, size.height - 1);
+    const float dx = clamped_x - static_cast<float>(x0);
+    const float dy = clamped_y - static_cast<float>(y0);
+
+    const auto value_at = [&](int px, int py) {
+        return plane[static_cast<std::size_t>(py) *
+                         static_cast<std::size_t>(size.width) +
+                     static_cast<std::size_t>(px)];
+    };
+
+    const float top =
+        value_at(x0, y0) * (1.0F - dx) + value_at(x1, y0) * dx;
+    const float bottom =
+        value_at(x0, y1) * (1.0F - dx) + value_at(x1, y1) * dx;
+    return top * (1.0F - dy) + bottom * dy;
+}
+
 InferenceMetadata make_metadata(const detail::RuntimeEngine& engine,
                                 const detail::PreprocessedImage& preprocessed,
                                 const SessionOptions& session) {
@@ -515,6 +545,21 @@ SegmentationMask project_segmentation_mask(const SegmentationCandidate& candidat
         return mask;
     }
 
+    std::vector<float> proto_logits(
+        static_cast<std::size_t>(proto.size.width * proto.size.height), 0.0F);
+    for (int y = 0; y < proto.size.height; ++y) {
+        for (int x = 0; x < proto.size.width; ++x) {
+            float value = 0.0F;
+            for (std::size_t channel = 0; channel < proto.channel_count;
+                 ++channel) {
+                value += candidate.mask_coefficients[channel] *
+                         proto.values[proto_index(proto, channel, y, x)];
+            }
+            proto_logits[static_cast<std::size_t>(y * proto.size.width + x)] =
+                value;
+        }
+    }
+
     const RectF source_bbox = unmap_rect(candidate.bbox, record);
     const int x0 = std::max(0, static_cast<int>(std::floor(source_bbox.x)));
     const int y0 = std::max(0, static_cast<int>(std::floor(source_bbox.y)));
@@ -529,26 +574,25 @@ SegmentationMask project_segmentation_mask(const SegmentationCandidate& candidat
         for (int x = x0; x < x1; ++x) {
             const Point2f model_point = map_source_to_model(
                 static_cast<float>(x), static_cast<float>(y), record);
-            const int proto_x = std::clamp(
-                static_cast<int>(std::floor(
-                    model_point.x * static_cast<float>(proto.size.width) /
-                    static_cast<float>(record.target_size.width))),
-                0, proto.size.width - 1);
-            const int proto_y = std::clamp(
-                static_cast<int>(std::floor(
-                    model_point.y * static_cast<float>(proto.size.height) /
-                    static_cast<float>(record.target_size.height))),
-                0, proto.size.height - 1);
-
-            float value = 0.0F;
-            for (std::size_t channel = 0; channel < proto.channel_count;
-                 ++channel) {
-                value += candidate.mask_coefficients[channel] *
-                         proto.values[proto_index(proto, channel, proto_y,
-                                                  proto_x)];
+            if (model_point.x < candidate.bbox.x ||
+                model_point.y < candidate.bbox.y ||
+                model_point.x >= candidate.bbox.x + candidate.bbox.width ||
+                model_point.y >= candidate.bbox.y + candidate.bbox.height) {
+                continue;
             }
 
-            if (sigmoid(value) > threshold) {
+            const float proto_x =
+                ((model_point.x + 0.5F) * static_cast<float>(proto.size.width) /
+                     static_cast<float>(record.target_size.width)) -
+                0.5F;
+            const float proto_y =
+                ((model_point.y + 0.5F) *
+                     static_cast<float>(proto.size.height) /
+                     static_cast<float>(record.target_size.height)) -
+                0.5F;
+            const float value = bilinear_sample_plane(proto_logits, proto.size,
+                                                      proto_x, proto_y);
+            if (value > 0.0F || sigmoid(value) > threshold) {
                 mask.data[static_cast<std::size_t>(y) *
                               static_cast<std::size_t>(mask.size.width) +
                           static_cast<std::size_t>(x)] = 1;
