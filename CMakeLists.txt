@@ -11,6 +11,7 @@ set_property(CACHE YOLO_CPP_ORT_PROVIDER PROPERTY STRINGS cpu cuda)
 add_library(yolo_cpp
   src/core/engine.cpp
   src/core/onnx_session.cpp
+  src/core/image_preprocess.cpp
   src/core/tensor_utils.cpp
   src/core/error.cpp
 )
