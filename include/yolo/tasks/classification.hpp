@@ -31,6 +31,7 @@ struct ClassificationOptions
 struct ClassificationResult
 {
     std::vector<Classification> classes{};
+    // Public scores are normalized probabilities for each class.
     std::vector<float> scores{};
     InferenceMetadata metadata{};
     Error error{};

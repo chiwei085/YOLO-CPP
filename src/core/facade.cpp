@@ -9,30 +9,12 @@
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
 #include "yolo/detail/task_factory.hpp"
+#include "yolo/detail/task_runtime_utils.hpp"
 
 namespace yolo
 {
 namespace
 {
-
-std::string provider_name_from_options(const SessionOptions& options) {
-    if (options.providers.empty()) {
-        return "cpu";
-    }
-
-    const ExecutionProvider provider = options.providers.front().provider;
-    if (provider == ExecutionProvider::cpu) {
-        return "cpu";
-    }
-    if (provider == ExecutionProvider::cuda) {
-        return "cuda";
-    }
-    if (provider == ExecutionProvider::tensorrt) {
-        return "tensorrt";
-    }
-
-    return "unknown";
-}
 
 Error unsupported_task_error(TaskKind requested, TaskKind actual,
                              std::string_view component) {
@@ -61,8 +43,11 @@ std::vector<TaskKind> probe_order(TaskKind hint) {
     if (hint == TaskKind::seg) {
         return {TaskKind::seg, TaskKind::detect, TaskKind::classify};
     }
-    if (hint == TaskKind::pose || hint == TaskKind::obb) {
-        return {TaskKind::seg, TaskKind::detect, TaskKind::classify};
+    if (hint == TaskKind::pose) {
+        return {TaskKind::pose};
+    }
+    if (hint == TaskKind::obb) {
+        return {TaskKind::obb};
     }
 
     return {TaskKind::seg, TaskKind::classify, TaskKind::detect};
@@ -105,28 +90,6 @@ Result<ProbeOutcome> probe_ultralytics_binding(const ModelSpec& spec,
     }
 
     return {.error = std::move(last_error)};
-}
-
-InferenceMetadata make_metadata(const PipelineInfo& info,
-                                const detail::PreprocessedImage& preprocessed,
-                                const SessionOptions& session,
-                                const detail::RawOutputTensors& outputs) {
-    std::vector<TensorInfo> output_infos{};
-    output_infos.reserve(outputs.size());
-    for (const auto& output : outputs) {
-        output_infos.push_back(output.info);
-    }
-
-    return InferenceMetadata{
-        .task = info.model.task,
-        .model_name = info.model.model_name,
-        .adapter_name = info.model.adapter,
-        .provider_name = provider_name_from_options(session),
-        .original_image_size = preprocessed.record.source_size,
-        .preprocess = preprocessed.record,
-        .outputs = std::move(output_infos),
-        .latency_ms = std::nullopt,
-    };
 }
 
 std::vector<RawOutputTensor> to_public_raw_outputs(
@@ -234,16 +197,18 @@ public:
         if (!outputs_result.ok()) {
             return RawInferenceResult{
                 .outputs = {},
-                .metadata = make_metadata(info_, *preprocess_result.value,
-                                          session_, {}),
+                .metadata = detail::make_raw_metadata(info_.model,
+                                                      *preprocess_result.value,
+                                                      session_, {}),
                 .error = outputs_result.error,
             };
         }
 
         return RawInferenceResult{
             .outputs = to_public_raw_outputs(*outputs_result.value),
-            .metadata = make_metadata(info_, *preprocess_result.value, session_,
-                                      *outputs_result.value),
+            .metadata =
+                detail::make_raw_metadata(info_.model, *preprocess_result.value,
+                                          session_, *outputs_result.value),
             .error = {},
         };
     }

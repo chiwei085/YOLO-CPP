@@ -12,6 +12,7 @@
 #include "yolo/adapters/ultralytics.hpp"
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"
+#include "yolo/detail/task_runtime_utils.hpp"
 
 namespace yolo
 {
@@ -21,35 +22,6 @@ using adapters::ultralytics::AdapterBindingSpec;
 using adapters::ultralytics::ClassificationBindingSpec;
 using adapters::ultralytics::ClassificationScoreKind;
 using adapters::ultralytics::OutputRole;
-
-std::string provider_name_from_options(const SessionOptions& options) {
-    if (options.providers.empty()) {
-        return "cpu";
-    }
-
-    switch (options.providers.front().provider) {
-        case ExecutionProvider::cpu:
-            return "cpu";
-        case ExecutionProvider::cuda:
-            return "cuda";
-        case ExecutionProvider::tensorrt:
-            return "tensorrt";
-    }
-
-    return "unknown";
-}
-
-Result<TensorInfo> select_primary_input(const detail::RuntimeEngine& engine) {
-    const auto& inputs = engine.description().inputs;
-    if (inputs.empty()) {
-        return {.error = make_error(
-                    ErrorCode::invalid_state,
-                    "Classification engine has no input tensor metadata.",
-                    ErrorContext{.component = std::string{"classification"}})};
-    }
-
-    return {.value = inputs.front(), .error = {}};
-}
 
 struct ClassificationDecodeSpec
 {
@@ -160,6 +132,11 @@ Result<std::vector<float>> decode_classification_scores(
     if (decode_spec.score_kind == ClassificationScoreKind::logits) {
         softmax_in_place(scores);
     }
+    else if (decode_spec.score_kind == ClassificationScoreKind::unknown) {
+        // Keep the public API stable by exposing probabilities even when the
+        // adapter cannot prove whether the source tensor was already normalized.
+        softmax_in_place(scores);
+    }
 
     return {
         .value = std::move(scores),
@@ -204,17 +181,20 @@ std::vector<Classification> postprocess_classification(
 
 InferenceMetadata make_metadata(const detail::RuntimeEngine& engine,
                                 const detail::PreprocessedImage& preprocessed,
-                                const SessionOptions& session) {
-    return InferenceMetadata{
-        .task = TaskKind::classify,
-        .model_name = engine.model().model_name,
-        .adapter_name = engine.model().adapter,
-        .provider_name = provider_name_from_options(session),
-        .original_image_size = preprocessed.record.source_size,
-        .preprocess = preprocessed.record,
-        .outputs = engine.description().outputs,
-        .latency_ms = std::nullopt,
-    };
+                                const SessionOptions& session,
+                                const ClassificationDecodeSpec& decode_spec) {
+    ClassificationScoreSemantics source_semantics =
+        ClassificationScoreSemantics::unknown;
+    if (decode_spec.score_kind == ClassificationScoreKind::logits) {
+        source_semantics = ClassificationScoreSemantics::logits;
+    }
+    else if (decode_spec.score_kind == ClassificationScoreKind::probabilities) {
+        source_semantics = ClassificationScoreSemantics::probabilities;
+    }
+
+    return detail::make_task_metadata(
+        TaskKind::classify, engine, preprocessed, session,
+        ClassificationScoreSemantics::probabilities, source_semantics);
 }
 
 class RuntimeClassifier final : public Classifier
@@ -265,7 +245,8 @@ public:
             };
         }
 
-        auto input_info_result = select_primary_input(*engine_);
+        auto input_info_result =
+            detail::select_primary_input(*engine_, "classification");
         if (!input_info_result.ok()) {
             return ClassificationResult{
                 .classes = {},
@@ -296,7 +277,8 @@ public:
                 .classes = {},
                 .scores = {},
                 .metadata =
-                    make_metadata(*engine_, *preprocess_result.value, session_),
+                    make_metadata(*engine_, *preprocess_result.value, session_,
+                                  decode_spec_),
                 .error = outputs_result.error,
             };
         }
@@ -308,7 +290,8 @@ public:
                 .classes = {},
                 .scores = {},
                 .metadata =
-                    make_metadata(*engine_, *preprocess_result.value, session_),
+                    make_metadata(*engine_, *preprocess_result.value, session_,
+                                  decode_spec_),
                 .error = decoded_scores_result.error,
             };
         }
@@ -318,7 +301,8 @@ public:
                                                   options_, spec_),
             .scores = *decoded_scores_result.value,
             .metadata =
-                make_metadata(*engine_, *preprocess_result.value, session_),
+                make_metadata(*engine_, *preprocess_result.value, session_,
+                              decode_spec_),
             .error = {},
         };
     }

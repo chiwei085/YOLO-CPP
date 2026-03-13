@@ -15,8 +15,11 @@ add_library(yolo_cpp
   src/core/onnx_session.cpp
   src/core/image_preprocess.cpp
   src/core/tensor_utils.cpp
+  src/core/task_runtime_utils.cpp
   src/core/error.cpp
   src/tasks/detection.cpp
+  src/tasks/detection_decode.cpp
+  src/tasks/detection_postprocess.cpp
   src/tasks/classification.cpp
   src/tasks/segmentation.cpp
   src/tasks/pose.cpp

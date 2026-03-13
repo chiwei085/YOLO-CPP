@@ -57,6 +57,7 @@ struct PipelineInfo
     std::vector<TensorInfo> inputs{};
     std::vector<TensorInfo> outputs{};
     std::optional<PreprocessPolicy> preprocess{};
+    // Advanced/debug introspection for adapter-derived runtime binding.
     std::optional<adapters::ultralytics::AdapterBindingSpec> adapter_binding{};
 };
 

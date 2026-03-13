@@ -11,6 +11,13 @@
 namespace yolo
 {
 
+enum class ClassificationScoreSemantics
+{
+    unknown,
+    logits,
+    probabilities,
+};
+
 struct InferenceMetadata
 {
     TaskKind task{TaskKind::detect};
@@ -20,6 +27,10 @@ struct InferenceMetadata
     std::optional<Size2i> original_image_size{};
     std::optional<PreprocessRecord> preprocess{};
     std::vector<TensorInfo> outputs{};
+    std::optional<ClassificationScoreSemantics>
+        classification_score_semantics{};
+    std::optional<ClassificationScoreSemantics>
+        source_classification_score_semantics{};
     std::optional<double> latency_ms{};
 };
 

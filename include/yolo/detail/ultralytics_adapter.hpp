@@ -10,7 +10,6 @@
 
 #include "yolo/adapters/ultralytics.hpp"
 #include "yolo/core/error.hpp"
-#include "yolo/core/image.hpp"
 #include "yolo/core/model_spec.hpp"
 #include "yolo/core/tensor.hpp"
 #include "yolo/detail/onnx_session.hpp"
