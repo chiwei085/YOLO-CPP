@@ -75,6 +75,12 @@ Result<ProbeOutcome> probe_ultralytics_binding(const ModelSpec& spec,
             result =
                 adapters::ultralytics::probe_segmentation_model(spec, session);
         }
+        else if (candidate == TaskKind::pose) {
+            result = adapters::ultralytics::probe_pose_model(spec, session);
+        }
+        else if (candidate == TaskKind::obb) {
+            result = adapters::ultralytics::probe_obb_model(spec, session);
+        }
         else {
             result.error = make_error(
                 ErrorCode::unsupported_task,
@@ -174,8 +180,9 @@ public:
                     "Pipeline raw inference metadata is incomplete.",
                     ErrorContext{
                         .component = std::string{"pipeline_raw"},
-                        .expected = std::string{
-                            "preprocess policy and at least one input"},
+                        .expected =
+                            std::string{
+                                "preprocess policy and at least one input"},
                     }),
             };
         }
@@ -198,9 +205,8 @@ public:
         if (!outputs_result.ok()) {
             return RawInferenceResult{
                 .outputs = {},
-                .metadata = detail::make_raw_metadata(info_.model,
-                                                      *preprocess_result.value,
-                                                      session_, {}),
+                .metadata = detail::make_raw_metadata(
+                    info_.model, *preprocess_result.value, session_, {}),
                 .error = outputs_result.error,
             };
         }
@@ -340,11 +346,12 @@ Result<std::unique_ptr<Pipeline>> create_pipeline(ModelSpec spec,
             binding, session, options.segmentation, shared_engine);
     }
     else if (binding.model.task == TaskKind::pose) {
-        pose_estimator =
-            create_pose_estimator(binding.model, session, options.pose);
+        pose_estimator = detail::create_pose_estimator_with_engine(
+            binding, session, options.pose, shared_engine);
     }
     else if (binding.model.task == TaskKind::obb) {
-        obb_detector = create_obb_detector(binding.model, session, options.obb);
+        obb_detector = detail::create_obb_detector_with_engine(
+            binding, session, options.obb, shared_engine);
     }
 
     return {

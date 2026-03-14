@@ -37,9 +37,13 @@ set(YOLO_CPP_TEST_COMMON_SOURCES
   component/test_classification_resize_numerics.cpp
   component/test_segmentation_decode_contract.cpp
   component/test_segmentation_mask_projection.cpp
+  component/test_pose_decode_contract.cpp
+  component/test_obb_decode_contract.cpp
   adapter/test_ultralytics_detect_probe.cpp
   adapter/test_ultralytics_classify_probe.cpp
   adapter/test_ultralytics_seg_binding_contract.cpp
+  adapter/test_ultralytics_pose_binding_contract.cpp
+  adapter/test_ultralytics_obb_binding_contract.cpp
   adapter/test_task_hard_constraint.cpp
 )
 
@@ -52,6 +56,8 @@ set(YOLO_CPP_TEST_MODEL_DIR "${CMAKE_SOURCE_DIR}/tests/assets/models")
 set(YOLO_CPP_TEST_DETECT_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n.onnx")
 set(YOLO_CPP_TEST_CLASSIFY_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-cls.onnx")
 set(YOLO_CPP_TEST_SEGMENT_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-seg.onnx")
+set(YOLO_CPP_TEST_POSE_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-pose.onnx")
+set(YOLO_CPP_TEST_OBB_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-obb.onnx")
 
 if(onnxruntime_FOUND
    AND EXISTS "${YOLO_CPP_TEST_DETECT_MODEL}"
@@ -89,6 +95,32 @@ if(onnxruntime_FOUND
       yolo_cpp_integration_tests
       PRIVATE
         YOLO_CPP_TEST_SEGMENT_MODEL="${YOLO_CPP_TEST_SEGMENT_MODEL}"
+    )
+  endif()
+
+  if(EXISTS "${YOLO_CPP_TEST_POSE_MODEL}")
+    target_sources(
+      yolo_cpp_integration_tests
+      PRIVATE
+        integration/test_pose_pipeline.cpp
+    )
+    target_compile_definitions(
+      yolo_cpp_integration_tests
+      PRIVATE
+        YOLO_CPP_TEST_POSE_MODEL="${YOLO_CPP_TEST_POSE_MODEL}"
+    )
+  endif()
+
+  if(EXISTS "${YOLO_CPP_TEST_OBB_MODEL}")
+    target_sources(
+      yolo_cpp_integration_tests
+      PRIVATE
+        integration/test_obb_pipeline.cpp
+    )
+    target_compile_definitions(
+      yolo_cpp_integration_tests
+      PRIVATE
+        YOLO_CPP_TEST_OBB_MODEL="${YOLO_CPP_TEST_OBB_MODEL}"
     )
   endif()
 

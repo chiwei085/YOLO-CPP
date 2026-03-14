@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "yolo/core/error.hpp"
@@ -14,11 +15,20 @@
 namespace yolo
 {
 
-struct Pose
+struct PoseKeypoint
+{
+    float score{0.0F};
+    bool visible{true};
+    Point2f point{};
+};
+
+struct PoseDetection
 {
     RectF bbox{};
     float score{0.0F};
-    std::vector<Keypoint> keypoints{};
+    ClassId class_id{0};
+    std::optional<std::string> label{};
+    std::vector<PoseKeypoint> keypoints{};
 };
 
 struct PoseOptions
@@ -30,7 +40,7 @@ struct PoseOptions
 
 struct PoseResult
 {
-    std::vector<Pose> poses{};
+    std::vector<PoseDetection> poses{};
     InferenceMetadata metadata{};
     Error error{};
 

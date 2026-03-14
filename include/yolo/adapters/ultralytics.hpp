@@ -24,6 +24,17 @@ enum class OutputRole
     proto,
 };
 
+enum class PoseKeypointSemantic
+{
+    xyscore,
+    xyvisibility,
+};
+
+enum class ObbBoxEncoding
+{
+    center_size_rotation,
+};
+
 enum class DetectionHeadLayout
 {
     xywh_class_scores_last,
@@ -71,6 +82,30 @@ struct SegmentationBindingSpec
     bool external_nms{false};
 };
 
+struct PoseBindingSpec
+{
+    DetectionHeadLayout layout{DetectionHeadLayout::xywh_class_scores_first};
+    std::size_t proposal_count{0};
+    std::size_t class_count{0};
+    std::size_t keypoint_count{0};
+    std::size_t keypoint_dimension{3};
+    PoseKeypointSemantic keypoint_semantic{PoseKeypointSemantic::xyscore};
+    bool external_nms{false};
+};
+
+struct ObbBindingSpec
+{
+    DetectionHeadLayout layout{DetectionHeadLayout::xywh_class_scores_first};
+    std::size_t proposal_count{0};
+    std::size_t class_count{0};
+    std::size_t box_coordinate_count{4};
+    std::size_t class_channel_offset{4};
+    std::size_t angle_channel_offset{4};
+    ObbBoxEncoding box_encoding{ObbBoxEncoding::center_size_rotation};
+    bool angle_is_radians{true};
+    bool external_nms{false};
+};
+
 struct AdapterBindingSpec
 {
     std::string adapter_name{std::string{kAdapterName}};
@@ -80,6 +115,8 @@ struct AdapterBindingSpec
     std::optional<DetectionBindingSpec> detection{};
     std::optional<ClassificationBindingSpec> classification{};
     std::optional<SegmentationBindingSpec> segmentation{};
+    std::optional<PoseBindingSpec> pose{};
+    std::optional<ObbBindingSpec> obb{};
 
     [[nodiscard]] TaskKind task() const noexcept { return model.task; }
 };
@@ -93,12 +130,22 @@ struct AdapterBindingSpec
 [[nodiscard]] Result<AdapterBindingSpec> probe_segmentation(
     const ModelSpec& model, const std::vector<TensorInfo>& inputs,
     const std::vector<TensorInfo>& outputs);
+[[nodiscard]] Result<AdapterBindingSpec> probe_pose(
+    const ModelSpec& model, const std::vector<TensorInfo>& inputs,
+    const std::vector<TensorInfo>& outputs);
+[[nodiscard]] Result<AdapterBindingSpec> probe_obb(
+    const ModelSpec& model, const std::vector<TensorInfo>& inputs,
+    const std::vector<TensorInfo>& outputs);
 
 [[nodiscard]] Result<AdapterBindingSpec> probe_detection_model(
     const ModelSpec& model, SessionOptions session = {});
 [[nodiscard]] Result<AdapterBindingSpec> probe_classification_model(
     const ModelSpec& model, SessionOptions session = {});
 [[nodiscard]] Result<AdapterBindingSpec> probe_segmentation_model(
+    const ModelSpec& model, SessionOptions session = {});
+[[nodiscard]] Result<AdapterBindingSpec> probe_pose_model(
+    const ModelSpec& model, SessionOptions session = {});
+[[nodiscard]] Result<AdapterBindingSpec> probe_obb_model(
     const ModelSpec& model, SessionOptions session = {});
 
 }  // namespace yolo::adapters::ultralytics
