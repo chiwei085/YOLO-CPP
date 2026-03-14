@@ -1,13 +1,13 @@
-# YOLO - CPP
+# YOLO-CPP
 
 Minimal YOLO runtime in C++20 with a small facade API and task coverage for
-detect / classify / seg / pose / obb.
+`detect`, `classify`, `seg`, `pose`, and `obb`.
 
 ## Supported Tasks
 
 - supports `detect`, `classify`, `seg`, `pose`, and `obb`
-- includes integration tests and parity tooling for checked-in assets
-- examples use a simple `PPM` (`P5`/`P6`) loader instead of OpenCV
+- includes integration tests and parity tooling
+- includes both minimal examples and OpenCV visualization examples
 
 ## Prerequisites
 
@@ -23,38 +23,106 @@ presets are written for:
 export VCPKG_ROOT="$HOME/.local/share/vcpkg"
 ```
 
-`VCPKG_OVERLAY_PORTS` and `VCPKG_BINARY_SOURCES=clear` are already wired into
-the repo presets, so you do not need to export them manually when using
-`cmake --preset ...`. The binary-cache setting is intentional here: it keeps
-the local ONNX overlay from being replaced by a stale cached package.
+The repo presets already carry the extra `vcpkg` environment this project
+needs, so `cmake --preset ...` is the normal entry point.
 
-## Build
+## Quick Start
 
-### CPU
+Choose one of these routes:
 
-Configure:
+- `dev`: build the library plus the minimal PPM examples
+- `dev-opencv`: build the library plus optional local OpenCV visualization examples in `Release`
+
+### Minimal Route
+
+Configure and build:
 
 ```bash
 cmake --preset dev --fresh
-```
-
-Build:
-
-```bash
 cmake --build build/dev
 ```
 
-This preset uses:
+Run detect:
 
-- `YOLO_CPP_ORT_PROVIDER=cpu`
-- `VCPKG_TARGET_TRIPLET=x64-linux-dynamic`
-- `VCPKG_MANIFEST_FEATURES=cpu`
-- `VCPKG_BINARY_SOURCES=clear`
+```bash
+./build/dev/examples/detect_image /path/to/model.onnx /path/to/image.ppm
+```
 
-The recommended baseline is shared ONNX Runtime via `x64-linux-dynamic` with
-the local overlay port in [`vcpkg-overlay-ports/onnx`](vcpkg-overlay-ports/onnx).
-That combination avoids the static ONNX registration conflict that breaks model
-loading in the default static package combination.
+Run classify:
+
+```bash
+./build/dev/examples/classify_image /path/to/model.onnx /path/to/image.ppm
+```
+
+If your input starts as `jpg` / `png`, convert it first:
+
+```bash
+magick input.jpg output.ppm
+```
+
+### OpenCV Visualization Route
+
+This route is intentionally a local demo path, not part of the core library
+baseline. The core `yolo_cpp` target stays renderer-agnostic; OpenCV is only
+used by these example executables.
+
+Install OpenCV for your machine first. On Debian/Ubuntu that usually means:
+
+```bash
+sudo apt install libopencv-dev
+```
+
+Configure and build:
+
+```bash
+cmake --preset dev-opencv --fresh
+cmake --build --preset build-opencv
+```
+
+This preset is set up as a `Release` example route so the visualization path
+matches the kind of build you would normally demo or screenshot.
+
+If CMake cannot locate OpenCV automatically on your system, pass an explicit
+package config path when configuring, for example:
+
+```bash
+cmake --preset dev-opencv --fresh -DOpenCV_DIR=/path/to/opencv/lib/cmake/opencv4
+```
+
+Run detect with saved output:
+
+```bash
+./build/dev-opencv/examples/detect_opencv_viz \
+  /path/to/yolov8n.onnx \
+  examples/assets/detect_demo.jpg \
+  build/dev-opencv/test1.detect.jpg
+```
+
+Run pose with saved output:
+
+```bash
+./build/dev-opencv/examples/pose_opencv_viz \
+  /path/to/yolov8n-pose.onnx \
+  examples/assets/pose_demo.jpg \
+  build/dev-opencv/test2.pose.jpg
+```
+
+These examples load `jpg` / `png` directly and save annotated output images.
+
+Example outputs:
+
+![Detect OpenCV Example](docs/images/examples/detect_opencv_viz_test1.jpg)
+
+![Pose OpenCV Example](docs/images/examples/pose_opencv_viz_test2.jpg)
+
+The source layout and helper split for both routes is summarized in
+[`examples/README.md`](examples/README.md).
+
+## Build Notes
+
+### CPU
+
+Use the `dev` preset from the quick start above.
 
 ### CUDA
 
@@ -75,31 +143,6 @@ cmake --build build/cuda
 ```bash
 cmake --preset dev -DYOLO_CPP_BUILD_EXAMPLES=OFF
 cmake --build build/dev
-```
-
-## Examples
-
-Built executables:
-
-- `build/dev/detect_image`
-- `build/dev/classify_image`
-
-Detect:
-
-```bash
-./build/dev/detect_image /path/to/model.onnx /path/to/image.ppm
-```
-
-Classify:
-
-```bash
-./build/dev/classify_image /path/to/model.onnx /path/to/image.ppm
-```
-
-If your input is `jpg`/`png`, convert it first:
-
-```bash
-magick input.jpg output.ppm
 ```
 
 ## Tests
@@ -132,14 +175,13 @@ only added when the required ONNX assets exist under `tests/assets/models/`.
 
 More detail lives in [`tests/README.md`](tests/README.md).
 
-## Notes
+## Validation And Tools
 
 - parity checks are available through the Python tooling under
   [`tests/parity`](tests/parity)
 - integration tests are only added when the required ONNX assets exist under
   `tests/assets/models/`
-- `pose` and `obb` include extra debug helpers for parity investigation on the
-  checked-in assets
+- `pose` and `obb` include extra debug helpers for parity investigation
 
 Run parity manually with the project test environment:
 
@@ -165,41 +207,6 @@ Run the staged OBB debug dump:
 uv run python tests/parity/run_obb_debug.py
 ```
 
-More detail lives in [`tests/parity/README.md`](tests/parity/README.md) and
-[`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md). Additional
-build notes for ONNX Runtime packaging live in
-[`docs/ort_static_vs_shared_plan.md`](docs/ort_static_vs_shared_plan.md).
-
-## Public API
-
-Umbrella header:
-
-```cpp
-#include "yolo/yolos.hpp"
-```
-
-Main facade:
-
-```cpp
-#include "yolo/facade.hpp"
-```
-
-Minimal usage:
-
-```cpp
-#include "yolo/facade.hpp"
-
-auto pipeline_result = yolo::create_pipeline(yolo::ModelSpec{
-    .path = "model.onnx",
-});
-
-if (!pipeline_result.ok()) {
-    yolo::throw_if_error(pipeline_result.error);
-}
-
-const auto& pipeline = *pipeline_result.value;
-```
-
-From there you can inspect `pipeline->info()` and call task-specific entrypoints
-such as `detect`, `classify`, `segment`, `detect_pose`, `detect_obb`, or
-`run_raw`.
+More detail lives in [`tests/parity/README.md`](tests/parity/README.md),
+[`tools/README.md`](tools/README.md), and
+[`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md).
