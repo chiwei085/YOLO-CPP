@@ -93,4 +93,4 @@ jobs:
         run: ctest --test-dir build/ci-full --output-on-failure
 
       - name: Run parity gate
-        run: uv run python tests/parity/run_parity.py --check
+        run: uv run python tests/parity/run_parity.py --check --build-dir build/ci-full
