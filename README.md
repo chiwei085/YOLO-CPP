@@ -1,20 +1,13 @@
-# YOLO-CPP
+# YOLO - CPP
 
-Minimal YOLO runtime in C++20, with a small facade API, Ultralytics-oriented
-adapter probing, and a layered test suite around detect / classify / seg.
+Minimal YOLO runtime in C++20 with a small facade API and task coverage for
+detect / classify / seg / pose / obb.
 
-## Current State
+## Supported Tasks
 
-- `detect`: usable and parity-aligned with Ultralytics Python on the current
-  parity assets
-- `classify`: usable and parity-aligned with Ultralytics Python on the current
-  parity assets
-- `seg`: usable and parity-aligned with Ultralytics Python on the current
-  parity assets, with staged debug dumps for first-fail analysis
-- `pose` / `obb`: not part of the current parity/integration mainline
-
-The examples are intentionally small and currently use a simple `PPM`
-(`P5`/`P6`) loader instead of OpenCV.
+- supports `detect`, `classify`, `seg`, `pose`, and `obb`
+- includes integration tests and parity tooling for checked-in assets
+- examples use a simple `PPM` (`P5`/`P6`) loader instead of OpenCV
 
 ## Prerequisites
 
@@ -28,23 +21,12 @@ presets are written for:
 
 ```bash
 export VCPKG_ROOT="$HOME/.local/share/vcpkg"
-export VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports"
 ```
 
-## Recommended Build Baseline
-
-The verified `vcpkg` baseline for development and model-backed tests is:
-
-- shared ONNX Runtime via `x64-linux-dynamic`
-- the local ONNX overlay port in [`vcpkg-overlay-ports/onnx`](vcpkg-overlay-ports/onnx)
-
-This avoids the static ONNX registration conflict that breaks model loading in
-the default static package combination.
-
-See:
-
-- [`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md)
-- [`docs/ort_static_vs_shared_plan.md`](docs/ort_static_vs_shared_plan.md)
+`VCPKG_OVERLAY_PORTS` and `VCPKG_BINARY_SOURCES=clear` are already wired into
+the repo presets, so you do not need to export them manually when using
+`cmake --preset ...`. The binary-cache setting is intentional here: it keeps
+the local ONNX overlay from being replaced by a stale cached package.
 
 ## Build
 
@@ -53,14 +35,12 @@ See:
 Configure:
 
 ```bash
-VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --preset dev --fresh
 ```
 
 Build:
 
 ```bash
-VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --build build/dev
 ```
 
@@ -69,6 +49,12 @@ This preset uses:
 - `YOLO_CPP_ORT_PROVIDER=cpu`
 - `VCPKG_TARGET_TRIPLET=x64-linux-dynamic`
 - `VCPKG_MANIFEST_FEATURES=cpu`
+- `VCPKG_BINARY_SOURCES=clear`
+
+The recommended baseline is shared ONNX Runtime via `x64-linux-dynamic` with
+the local overlay port in [`vcpkg-overlay-ports/onnx`](vcpkg-overlay-ports/onnx).
+That combination avoids the static ONNX registration conflict that breaks model
+loading in the default static package combination.
 
 ### CUDA
 
@@ -87,9 +73,7 @@ cmake --build build/cuda
 ### Library-Only
 
 ```bash
-VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --preset dev -DYOLO_CPP_BUILD_EXAMPLES=OFF
-VCPKG_OVERLAY_PORTS="$PWD/vcpkg-overlay-ports" \
 cmake --build build/dev
 ```
 
@@ -118,7 +102,7 @@ If your input is `jpg`/`png`, convert it first:
 magick input.jpg output.ppm
 ```
 
-## Testing
+## Tests
 
 Testing is enabled by default with `BUILD_TESTING=ON`.
 
@@ -148,27 +132,43 @@ only added when the required ONNX assets exist under `tests/assets/models/`.
 
 More detail lives in [`tests/README.md`](tests/README.md).
 
-## Parity
+## Notes
 
-Current parity status:
-
-- detect: aligned
-- classify: aligned
-- segmentation: aligned on `tests/assets/models/yolov8n-seg.onnx`
+- parity checks are available through the Python tooling under
+  [`tests/parity`](tests/parity)
+- integration tests are only added when the required ONNX assets exist under
+  `tests/assets/models/`
+- `pose` and `obb` include extra debug helpers for parity investigation on the
+  checked-in assets
 
 Run parity manually with the project test environment:
 
 ```bash
-.venv-tests/bin/python tests/parity/run_parity.py --check
+uv run python tests/parity/run_parity.py --check
 ```
 
 Run the staged segmentation debug dump:
 
 ```bash
-.venv-tests/bin/python tests/parity/run_segmentation_debug.py
+uv run python tests/parity/run_segmentation_debug.py
 ```
 
-More detail lives in [`tests/parity/README.md`](tests/parity/README.md).
+Run the staged pose debug dump:
+
+```bash
+uv run python tests/parity/run_pose_debug.py
+```
+
+Run the staged OBB debug dump:
+
+```bash
+uv run python tests/parity/run_obb_debug.py
+```
+
+More detail lives in [`tests/parity/README.md`](tests/parity/README.md) and
+[`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md). Additional
+build notes for ONNX Runtime packaging live in
+[`docs/ort_static_vs_shared_plan.md`](docs/ort_static_vs_shared_plan.md).
 
 ## Public API
 
@@ -200,10 +200,6 @@ if (!pipeline_result.ok()) {
 const auto& pipeline = *pipeline_result.value;
 ```
 
-From there you can:
-
-- inspect `pipeline->info()`
-- call `pipeline->detect(image)`
-- call `pipeline->classify(image)`
-- call `pipeline->segment(image)`
-- call `pipeline->run_raw(image)`
+From there you can inspect `pipeline->info()` and call task-specific entrypoints
+such as `detect`, `classify`, `segment`, `detect_pose`, `detect_obb`, or
+`run_raw`.
