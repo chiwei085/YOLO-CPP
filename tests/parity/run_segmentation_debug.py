@@ -9,6 +9,33 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+try:
+    from tests.parity._shared import (
+        SEGMENTATION_DEBUG_STAGES,
+        debug_comparison_path,
+        debug_dump_path,
+        debug_tolerances,
+        default_build_dir,
+        default_output_dir,
+        extract_json_payload,
+        missing_asset_message,
+        ppm_input_path,
+        write_json,
+    )
+except ModuleNotFoundError:
+    from _shared import (
+        SEGMENTATION_DEBUG_STAGES,
+        debug_comparison_path,
+        debug_dump_path,
+        debug_tolerances,
+        default_build_dir,
+        default_output_dir,
+        extract_json_payload,
+        missing_asset_message,
+        ppm_input_path,
+        write_json,
+    )
+
 
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[2]
@@ -17,7 +44,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=str(root / "tests" / "assets" / "models" / "yolov8n-seg.onnx"),
+        default=str(
+            Path(__file__).resolve().parents[2]
+            / "tests"
+            / "assets"
+            / "models"
+            / "yolov8n-seg.onnx"
+        ),
     )
     parser.add_argument(
         "--image",
@@ -25,18 +58,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--build-dir",
-        default=str(root / "build" / "dev"),
+        default=str(default_build_dir()),
     )
     parser.add_argument(
         "--output-dir",
-        default=str(root / "tests" / "assets" / "baselines" / "parity"),
+        default=str(default_output_dir()),
     )
     return parser.parse_args()
-
-
-def write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def encode_rle(mask_values: list[int]) -> list[int]:
@@ -192,7 +220,7 @@ def build_python_debug(model_path: Path, image_path: Path) -> dict[str, object]:
 
     return {
         "task": "seg",
-        "image": str(image_path),
+        "image": image_path.name,
         "preprocess": {
             "tensor_shape": [int(value) for value in tensor.shape],
             "tensor_values": [float(value) for value in tensor.reshape(-1).tolist()],
@@ -245,7 +273,7 @@ def build_python_debug(model_path: Path, image_path: Path) -> dict[str, object]:
 def ppm_inputs(image_path: Path, scratch_dir: Path) -> Path:
     from PIL import Image
 
-    ppm_path = scratch_dir / f"{image_path.stem}.ppm"
+    ppm_path = ppm_input_path(image_path, scratch_dir)
     Image.open(image_path).convert("RGB").save(ppm_path, format="PPM")
     return ppm_path
 
@@ -259,12 +287,9 @@ def build_cpp_debug(tool_path: Path, model_path: Path, image_path: Path) -> dict
             capture_output=True,
             text=True,
         )
-    json_start = completed.stdout.find('{"task"')
-    if json_start < 0:
-        raise RuntimeError(
-            f"C++ segmentation debug tool did not emit JSON. stderr was:\n{completed.stderr}"
-        )
-    return json.loads(completed.stdout[json_start:])
+    return extract_json_payload(
+        completed.stdout, completed.stderr, "C++ segmentation debug tool"
+    )
 
 
 def max_abs_diff(lhs: list[float], rhs: list[float]) -> float:
@@ -276,6 +301,7 @@ def max_abs_diff(lhs: list[float], rhs: list[float]) -> float:
 
 
 def compare_debug(python_payload: dict[str, object], cpp_payload: dict[str, object]) -> dict[str, object]:
+    tolerances = debug_tolerances("seg")
     comparisons: list[dict[str, object]] = []
 
     def record(stage: str, ok: bool, detail: str) -> None:
@@ -285,7 +311,11 @@ def compare_debug(python_payload: dict[str, object], cpp_payload: dict[str, obje
         python_payload["preprocess"]["tensor_values"],
         cpp_payload["preprocess"]["tensor_values"],
     )
-    record("preprocess", preprocess_diff <= 1e-4, f"max_abs_diff={preprocess_diff}")
+    record(
+        SEGMENTATION_DEBUG_STAGES[0],
+        preprocess_diff <= tolerances["preprocess"],
+        f"max_abs_diff={preprocess_diff}",
+    )
 
     python_raw = python_payload["raw_outputs"]
     cpp_raw = cpp_payload["raw_outputs"]
@@ -295,9 +325,9 @@ def compare_debug(python_payload: dict[str, object], cpp_payload: dict[str, obje
         for index, (py_output, cpp_output) in enumerate(zip(python_raw, cpp_raw)):
             diff = max_abs_diff(py_output["values"], cpp_output["values"])
             raw_detail.append(f"{index}:{diff}")
-            if diff > 1e-4:
+            if diff > tolerances["raw_outputs"]:
                 raw_ok = False
-    record("raw_outputs", raw_ok, ", ".join(raw_detail))
+    record(SEGMENTATION_DEBUG_STAGES[1], raw_ok, ", ".join(raw_detail))
 
     python_nms = python_payload["nms"]["candidates"]
     cpp_nms = cpp_payload["nms"]["candidates"]
@@ -308,22 +338,30 @@ def compare_debug(python_payload: dict[str, object], cpp_payload: dict[str, obje
         bbox_diff = max_abs_diff(py_top["bbox_xywh"], cpp_top["bbox_xywh"])
         score_diff = abs(py_top["score"] - cpp_top["score"])
         class_ok = py_top["class_id"] == cpp_top["class_id"]
-        nms_ok = class_ok and bbox_diff <= 8.0 and score_diff <= 0.2
+        nms_ok = (
+            class_ok
+            and bbox_diff <= tolerances["bbox_delta"]
+            and score_diff <= tolerances["score_delta"]
+        )
         record(
-            "nms",
+            SEGMENTATION_DEBUG_STAGES[4],
             nms_ok,
             f"class_match={class_ok}, bbox_max_abs_diff={bbox_diff}, score_diff={score_diff}",
         )
     else:
-        record("nms", False, "missing top candidate in python or cpp payload")
+        record(
+            SEGMENTATION_DEBUG_STAGES[4],
+            False,
+            "missing top candidate in python or cpp payload",
+        )
 
     projection_diff = max_abs_diff(
         python_payload["mask_projection"]["top_candidate_logits"],
         cpp_payload["mask_projection"]["top_candidate_logits"],
     )
     record(
-        "mask_projection",
-        projection_diff <= 1e-3,
+        SEGMENTATION_DEBUG_STAGES[5],
+        projection_diff <= tolerances["mask_projection"],
         f"max_abs_diff={projection_diff}",
     )
 
@@ -337,14 +375,23 @@ def compare_debug(python_payload: dict[str, object], cpp_payload: dict[str, obje
         bbox_diff = max_abs_diff(py_top["bbox_xywh"], cpp_top["bbox_xywh"])
         score_diff = abs(py_top["score"] - cpp_top["score"])
         class_ok = py_top["class_id"] == cpp_top["class_id"]
-        final_ok = class_ok and bbox_diff <= 8.0 and score_diff <= 0.2 and area_diff <= 2000
+        final_ok = (
+            class_ok
+            and bbox_diff <= tolerances["bbox_delta"]
+            and score_diff <= tolerances["score_delta"]
+            and area_diff <= tolerances["mask_area_delta"]
+        )
         record(
-            "final",
+            SEGMENTATION_DEBUG_STAGES[6],
             final_ok,
             f"class_match={class_ok}, bbox_max_abs_diff={bbox_diff}, score_diff={score_diff}, area_diff={area_diff}",
         )
     else:
-        record("final", False, "missing final instance in python or cpp payload")
+        record(
+            SEGMENTATION_DEBUG_STAGES[6],
+            False,
+            "missing final instance in python or cpp payload",
+        )
 
     first_fail = next((entry["stage"] for entry in comparisons if not entry["ok"]), None)
     return {
@@ -361,19 +408,19 @@ def main() -> int:
     tool_path = Path(args.build_dir) / "yolo_cpp_segmentation_debug_dump"
 
     if not model_path.exists():
-        raise SystemExit(f"missing model: {model_path}")
+        raise SystemExit(missing_asset_message("model", model_path))
     if not image_path.exists():
-        raise SystemExit(f"missing image: {image_path}")
+        raise SystemExit(missing_asset_message("image", image_path))
     if not tool_path.exists():
-        raise SystemExit(f"missing tool: {tool_path}")
+        raise SystemExit(missing_asset_message("tool", tool_path))
 
     python_payload = build_python_debug(model_path, image_path)
     cpp_payload = build_cpp_debug(tool_path, model_path, image_path)
     comparison_payload = compare_debug(python_payload, cpp_payload)
 
-    write_json(output_dir / "seg_python_debug.json", python_payload)
-    write_json(output_dir / "seg_cpp_debug.json", cpp_payload)
-    write_json(output_dir / "seg_debug_comparison.json", comparison_payload)
+    write_json(debug_dump_path("seg", "python", output_dir), python_payload)
+    write_json(debug_dump_path("seg", "cpp", output_dir), cpp_payload)
+    write_json(debug_comparison_path("seg", output_dir), comparison_payload)
 
     first_fail = comparison_payload["first_fail"]
     if first_fail is None:

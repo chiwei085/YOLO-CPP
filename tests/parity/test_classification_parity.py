@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from tests.parity._parity_utils import load_pair
+from tests.parity._parity_utils import load_pair, parity_skip
+from tests.parity._shared import parity_tolerances
 
 
 class ClassificationParityTest(unittest.TestCase):
     def test_classification_parity(self) -> None:
+        tolerances = parity_tolerances("classify")
         python_payload, cpp_payload = load_pair("classify")
         if python_payload is None or cpp_payload is None:
-            self.skipTest(
-                "run_parity.py has not generated classification parity JSON yet"
-            )
+            self.skipTest(parity_skip("classify"))
 
         self.assertEqual(len(python_payload["images"]), len(cpp_payload["images"]))
         for python_image, cpp_image in zip(
@@ -28,7 +28,11 @@ class ClassificationParityTest(unittest.TestCase):
             for python_score, cpp_score in zip(
                 python_image["scores"][:5], cpp_image["scores"][:5]
             ):
-                self.assertAlmostEqual(python_score, cpp_score, delta=0.1)
+                self.assertAlmostEqual(
+                    python_score,
+                    cpp_score,
+                    delta=tolerances["score_delta"],
+                )
 
 
 if __name__ == "__main__":

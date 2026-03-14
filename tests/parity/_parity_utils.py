@@ -4,19 +4,25 @@ import json
 import os
 from pathlib import Path
 
+from tests.parity._shared import (
+    default_output_dir,
+    parity_skip_message,
+    parity_summary_path,
+)
+
 
 def parity_dir() -> Path:
     env_dir = os.environ.get("YOLO_CPP_PARITY_DIR")
     if env_dir:
         return Path(env_dir)
 
-    return Path(__file__).resolve().parents[1] / "assets" / "baselines" / "parity"
+    return default_output_dir()
 
 
 def load_pair(task: str) -> tuple[dict, dict] | tuple[None, None]:
     root = parity_dir()
-    cpp_path = root / f"{task}_cpp.json"
-    python_path = root / f"{task}_python.json"
+    cpp_path = parity_summary_path(task, "cpp", root)
+    python_path = parity_summary_path(task, "python", root)
     if not cpp_path.exists() or not python_path.exists():
         return None, None
 
@@ -24,6 +30,10 @@ def load_pair(task: str) -> tuple[dict, dict] | tuple[None, None]:
         json.loads(python_path.read_text(encoding="utf-8")),
         json.loads(cpp_path.read_text(encoding="utf-8")),
     )
+
+
+def parity_skip(task: str) -> str:
+    return parity_skip_message(task)
 
 
 def decode_rle(mask: dict) -> list[int]:
