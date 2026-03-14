@@ -11,7 +11,8 @@
 #include <string_view>
 #include <vector>
 
-#include "example_image.hpp"
+#include "ppm_loader/image_ppm.hpp"
+#include "support/cli.hpp"
 #include "yolo/facade.hpp"
 
 namespace
