@@ -82,6 +82,7 @@ jobs:
 
       - name: Build full-gate targets
         run: |
+          cmake --build build/ci-full --target yolo_cpp_tests
           cmake --build build/ci-full --target yolo_cpp_integration_tests
           cmake --build build/ci-full --target yolo_cpp_parity_dump
           cmake --build build/ci-full --target yolo_cpp_segmentation_debug_dump
