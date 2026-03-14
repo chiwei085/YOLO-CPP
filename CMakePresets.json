@@ -33,6 +33,20 @@
       }
     },
     {
+      "name": "dev-opencv",
+      "displayName": "Dev (CPU, Release OpenCV examples)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/dev-opencv",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "YOLO_CPP_ORT_PROVIDER": "cpu",
+        "VCPKG_MANIFEST_FEATURES": "cpu",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
+        "YOLO_CPP_BUILD_PPM_EXAMPLES": "OFF",
+        "YOLO_CPP_BUILD_OPENCV_EXAMPLES": "ON"
+      }
+    },
+    {
       "name": "dev-cuda",
       "displayName": "Dev (CUDA)",
       "inherits": "base",
@@ -81,6 +95,10 @@
     {
       "name": "build-cuda",
       "configurePreset": "dev-cuda"
+    },
+    {
+      "name": "build-opencv",
+      "configurePreset": "dev-opencv"
     },
     {
       "name": "build-ci",
