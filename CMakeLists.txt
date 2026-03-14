@@ -5,6 +5,8 @@ project(yolo_cpp VERSION 0.1.1 LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(YOLO_CPP_BUILD_EXAMPLES "Build example executables" ON)
 option(YOLO_CPP_BUILD_DIAGNOSTICS "Build diagnostic probes" ON)
+option(YOLO_CPP_BUILD_INTEGRATION_TESTS
+  "Build and register integration tests that require ONNX Runtime and model assets" ON)
 include(CTest)
 
 set(YOLO_CPP_ORT_PROVIDER "cpu" CACHE STRING

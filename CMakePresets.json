@@ -53,6 +53,7 @@
         "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
         "YOLO_CPP_BUILD_EXAMPLES": "OFF",
         "YOLO_CPP_BUILD_DIAGNOSTICS": "ON",
+        "YOLO_CPP_BUILD_INTEGRATION_TESTS": "OFF",
         "BUILD_TESTING": "ON"
       }
     },
@@ -67,6 +68,7 @@
         "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
         "YOLO_CPP_BUILD_EXAMPLES": "OFF",
         "YOLO_CPP_BUILD_DIAGNOSTICS": "ON",
+        "YOLO_CPP_BUILD_INTEGRATION_TESTS": "ON",
         "BUILD_TESTING": "ON"
       }
     }
