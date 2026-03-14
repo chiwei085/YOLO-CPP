@@ -59,9 +59,19 @@ set(YOLO_CPP_TEST_SEGMENT_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-seg.onnx")
 set(YOLO_CPP_TEST_POSE_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-pose.onnx")
 set(YOLO_CPP_TEST_OBB_MODEL "${YOLO_CPP_TEST_MODEL_DIR}/yolov8n-obb.onnx")
 
-if(onnxruntime_FOUND
-   AND EXISTS "${YOLO_CPP_TEST_DETECT_MODEL}"
-   AND EXISTS "${YOLO_CPP_TEST_CLASSIFY_MODEL}")
+if(NOT YOLO_CPP_BUILD_INTEGRATION_TESTS)
+  message(STATUS "YOLO_CPP_BUILD_INTEGRATION_TESTS=OFF; skipping integration test registration")
+elseif(NOT onnxruntime_FOUND)
+  message(STATUS "Skipping integration tests because ONNX Runtime was not found")
+elseif(NOT EXISTS "${YOLO_CPP_TEST_DETECT_MODEL}")
+  message(STATUS
+    "Skipping integration tests because detect model is missing: "
+    "${YOLO_CPP_TEST_DETECT_MODEL}")
+elseif(NOT EXISTS "${YOLO_CPP_TEST_CLASSIFY_MODEL}")
+  message(STATUS
+    "Skipping integration tests because classification model is missing: "
+    "${YOLO_CPP_TEST_CLASSIFY_MODEL}")
+else()
   set(YOLO_CPP_INTEGRATION_SOURCES
     integration/test_detect_pipeline.cpp
     integration/test_classify_pipeline.cpp
