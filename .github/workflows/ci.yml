@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  baseline:
+    name: Baseline C++ Gate
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$HOME/.local/share/vcpkg/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$HOME/.local/share/vcpkg"
+          fi
+          "$HOME/.local/share/vcpkg/bootstrap-vcpkg.sh"
+
+      - name: Configure
+        run: cmake --preset ci --fresh
+
+      - name: Build baseline targets
+        run: |
+          cmake --build build/ci --target yolo_cpp_tests
+          cmake --build build/ci --target yolo_cpp_parity_dump
+
+      - name: Run baseline tests
+        run: ctest --test-dir build/ci --output-on-failure -E "pipeline runs end-to-end"
+
+  full-gate:
+    name: Full Gate
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -d "$HOME/.local/share/vcpkg/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$HOME/.local/share/vcpkg"
+          fi
+          "$HOME/.local/share/vcpkg/bootstrap-vcpkg.sh"
+
+      - name: Sync Python parity environment
+        run: uv sync --group test
+
+      - name: Configure
+        run: cmake --preset ci-full --fresh
+
+      - name: Build full-gate targets
+        run: |
+          cmake --build build/ci-full --target yolo_cpp_integration_tests
+          cmake --build build/ci-full --target yolo_cpp_parity_dump
+          cmake --build build/ci-full --target yolo_cpp_segmentation_debug_dump
+          cmake --build build/ci-full --target yolo_cpp_pose_debug_dump
+          cmake --build build/ci-full --target yolo_cpp_obb_debug_dump
+
+      - name: Run full ctest gate
+        run: ctest --test-dir build/ci-full --output-on-failure
+
+      - name: Run parity gate
+        run: uv run python tests/parity/run_parity.py --check

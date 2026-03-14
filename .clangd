@@ -1,0 +1,9 @@
+CompileFlags:
+  CompilationDatabase: build/dev
+  Add:
+    - -std=gnu++20
+    - -Iinclude
+    - -Itests
+    - -Ibuild/dev/vcpkg_installed/x64-linux-dynamic/include
+    - -isystem
+    - build/dev/vcpkg_installed/x64-linux-dynamic/include/onnxruntime

@@ -8,6 +8,7 @@ vcpkg_from_github(
     PATCHES
         fix-cmakelists.patch
         fix-pr-7390.patch # part of https://github.com/onnx/onnx PR 7390
+        disable-static-registration-debug-assert.patch
 )
 
 string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "static" USE_STATIC_RUNTIME)

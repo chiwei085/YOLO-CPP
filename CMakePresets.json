@@ -11,7 +11,9 @@
       "hidden": true,
       "generator": "Ninja",
       "environment": {
-        "VCPKG_ROOT": "$penv{HOME}/.local/share/vcpkg"
+        "VCPKG_ROOT": "$penv{HOME}/.local/share/vcpkg",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/vcpkg-overlay-ports",
+        "VCPKG_BINARY_SOURCES": "clear"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -39,6 +41,34 @@
         "YOLO_CPP_ORT_PROVIDER": "cuda",
         "VCPKG_MANIFEST_FEATURES": "cuda"
       }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI Baseline (CPU, tests/tools)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/ci",
+      "cacheVariables": {
+        "YOLO_CPP_ORT_PROVIDER": "cpu",
+        "VCPKG_MANIFEST_FEATURES": "cpu",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
+        "YOLO_CPP_BUILD_EXAMPLES": "OFF",
+        "YOLO_CPP_BUILD_DIAGNOSTICS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "ci-full",
+      "displayName": "CI Full Gate (CPU, assets/parity)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/ci-full",
+      "cacheVariables": {
+        "YOLO_CPP_ORT_PROVIDER": "cpu",
+        "VCPKG_MANIFEST_FEATURES": "cpu",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
+        "YOLO_CPP_BUILD_EXAMPLES": "OFF",
+        "YOLO_CPP_BUILD_DIAGNOSTICS": "ON",
+        "BUILD_TESTING": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -49,6 +79,14 @@
     {
       "name": "build-cuda",
       "configurePreset": "dev-cuda"
+    },
+    {
+      "name": "build-ci",
+      "configurePreset": "ci"
+    },
+    {
+      "name": "build-ci-full",
+      "configurePreset": "ci-full"
     }
   ]
 }
