@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(yolo_cpp VERSION 0.1.1 LANGUAGES CXX)
+project(yolo_cpp VERSION 0.1.2 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(YOLO_CPP_BUILD_EXAMPLES "Build example executables" ON)
+option(YOLO_CPP_BUILD_OPENCV_EXAMPLES
+  "Build OpenCV-based visualization examples" OFF)
 option(YOLO_CPP_BUILD_DIAGNOSTICS "Build diagnostic probes" ON)
 option(YOLO_CPP_BUILD_INTEGRATION_TESTS
   "Build and register integration tests that require ONNX Runtime and model assets" ON)
@@ -107,7 +109,9 @@ else()
     "Configure with a vcpkg preset to install it automatically.")
 endif()
 
-if(CMAKE_BINARY_DIR MATCHES "/build/dev$" OR CMAKE_BINARY_DIR MATCHES "/build/cuda$")
+if(CMAKE_BINARY_DIR MATCHES "/build/dev$"
+   OR CMAKE_BINARY_DIR MATCHES "/build/dev-opencv$"
+   OR CMAKE_BINARY_DIR MATCHES "/build/cuda$")
   file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/build")
   file(CREATE_LINK
     "${CMAKE_BINARY_DIR}/compile_commands.json"
@@ -116,16 +120,8 @@ if(CMAKE_BINARY_DIR MATCHES "/build/dev$" OR CMAKE_BINARY_DIR MATCHES "/build/cu
   )
 endif()
 
-if(YOLO_CPP_BUILD_EXAMPLES)
-  add_executable(detect_image examples/detect_image.cpp)
-  target_link_libraries(detect_image PRIVATE yolo_cpp)
-  target_include_directories(
-    detect_image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
-
-  add_executable(classify_image examples/classify_image.cpp)
-  target_link_libraries(classify_image PRIVATE yolo_cpp)
-  target_include_directories(
-    classify_image PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+if(YOLO_CPP_BUILD_EXAMPLES OR YOLO_CPP_BUILD_OPENCV_EXAMPLES)
+  add_subdirectory(examples)
 endif()
 
 if(YOLO_CPP_BUILD_DIAGNOSTICS AND onnxruntime_FOUND)

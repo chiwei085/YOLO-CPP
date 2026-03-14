@@ -3,7 +3,6 @@
 #include <cctype>
 #include <cstddef>
 #include <fstream>
-#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -111,29 +110,6 @@ inline yolo::Result<LoadedImage> load_ppm_image(std::string_view path) {
                                              : yolo::PixelFormat::rgb8,
                 },
             .error = {}};
-}
-
-inline int print_error(const yolo::Error& error) {
-    std::cerr << "error: " << error.message << '\n';
-    if (error.context.has_value()) {
-        if (error.context->component.has_value()) {
-            std::cerr << "component: " << *error.context->component << '\n';
-        }
-        if (error.context->input_name.has_value()) {
-            std::cerr << "input: " << *error.context->input_name << '\n';
-        }
-        if (error.context->output_name.has_value()) {
-            std::cerr << "output: " << *error.context->output_name << '\n';
-        }
-        if (error.context->expected.has_value()) {
-            std::cerr << "expected: " << *error.context->expected << '\n';
-        }
-        if (error.context->actual.has_value()) {
-            std::cerr << "actual: " << *error.context->actual << '\n';
-        }
-    }
-
-    return 1;
 }
 
 }  // namespace examples

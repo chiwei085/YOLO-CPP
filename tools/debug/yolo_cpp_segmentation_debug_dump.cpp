@@ -13,7 +13,8 @@
 #include <utility>
 #include <vector>
 
-#include "example_image.hpp"
+#include "ppm_loader/image_ppm.hpp"
+#include "support/cli.hpp"
 #include "yolo/adapters/ultralytics.hpp"
 #include "yolo/detail/engine.hpp"
 #include "yolo/detail/image_preprocess.hpp"

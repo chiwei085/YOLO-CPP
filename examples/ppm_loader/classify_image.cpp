@@ -3,7 +3,8 @@
 #include <iostream>
 #include <memory>
 
-#include "example_image.hpp"
+#include "ppm_loader/image_ppm.hpp"
+#include "support/cli.hpp"
 #include "yolo/facade.hpp"
 
 int main(int argc, char** argv) {
@@ -27,11 +28,10 @@ int main(int argc, char** argv) {
     }
 
     const std::unique_ptr<yolo::Pipeline>& pipeline = *pipeline_result.value;
-    std::cout << "adapter: "
-              << pipeline->info().model.adapter.value_or("unknown") << '\n';
-    std::cout << "task: classify\n";
-    std::cout << "inputs: " << pipeline->info().inputs.size()
-              << ", outputs: " << pipeline->info().outputs.size() << '\n';
+    const auto& info = pipeline->info();
+    examples::print_pipeline_summary(info.model.adapter.value_or("unknown"),
+                                     "classify", info.inputs.size(),
+                                     info.outputs.size());
 
     const yolo::ClassificationResult result =
         pipeline->classify(image_result.value->view());
