@@ -1,9 +1,9 @@
+#include <onnxruntime/onnxruntime_cxx_api.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
-
-#include <onnxruntime/onnxruntime_cxx_api.h>
 
 namespace
 {
@@ -18,7 +18,8 @@ int probe_model(Ort::Env& env, const char* model_path) {
         Ort::SessionOptions options{};
         Ort::Session session{env, model_path, options};
 
-        std::cout << "OK  " << model_path << " inputs=" << session.GetInputCount()
+        std::cout << "OK  " << model_path
+                  << " inputs=" << session.GetInputCount()
                   << " outputs=" << session.GetOutputCount() << '\n';
         return 0;
     }

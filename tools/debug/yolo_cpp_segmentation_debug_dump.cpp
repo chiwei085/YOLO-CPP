@@ -1,7 +1,8 @@
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <numeric>
@@ -99,8 +100,8 @@ void write_size(std::ostream& stream, const Size2i& size) {
 
 void write_padding(std::ostream& stream, const Padding2i& padding) {
     stream << "{\"left\":" << padding.left << ",\"top\":" << padding.top
-           << ",\"right\":" << padding.right << ",\"bottom\":"
-           << padding.bottom << '}';
+           << ",\"right\":" << padding.right << ",\"bottom\":" << padding.bottom
+           << '}';
 }
 
 void write_bbox_xywh(std::ostream& stream, const RectF& bbox) {
@@ -176,10 +177,10 @@ RectF unmap_rect(const RectF& rect, const PreprocessRecord& record) {
         unmapped.height /= record.resize_scale.y;
     }
     else if (record.resize_mode == ResizeMode::resize_crop && record.crop) {
-        unmapped.x =
-            (unmapped.x + static_cast<float>(record.crop->x)) / record.resize_scale.x;
-        unmapped.y =
-            (unmapped.y + static_cast<float>(record.crop->y)) / record.resize_scale.y;
+        unmapped.x = (unmapped.x + static_cast<float>(record.crop->x)) /
+                     record.resize_scale.x;
+        unmapped.y = (unmapped.y + static_cast<float>(record.crop->y)) /
+                     record.resize_scale.y;
         unmapped.width /= record.resize_scale.x;
         unmapped.height /= record.resize_scale.y;
     }
@@ -229,8 +230,8 @@ Point2f map_source_to_model(float source_x, float source_y,
     };
 }
 
-std::size_t proto_index(const ProtoMaskTensor& proto, std::size_t channel, int y,
-                        int x) {
+std::size_t proto_index(const ProtoMaskTensor& proto, std::size_t channel,
+                        int y, int x) {
     return (channel * static_cast<std::size_t>(proto.size.height) +
             static_cast<std::size_t>(y)) *
                static_cast<std::size_t>(proto.size.width) +
@@ -295,8 +296,8 @@ void write_candidate_list(std::ostream& stream,
             stream << ',';
         }
         const auto& candidate = candidates[i];
-        stream << "{\"class_id\":" << candidate.class_id << ",\"score\":"
-               << candidate.score << ",\"bbox_xywh\":";
+        stream << "{\"class_id\":" << candidate.class_id
+               << ",\"score\":" << candidate.score << ",\"bbox_xywh\":";
         write_bbox_xywh(stream, candidate.bbox);
         stream << ",\"bbox_xyxy\":";
         write_bbox_xyxy(stream, candidate.bbox);
@@ -321,11 +322,11 @@ std::vector<SegmentationCandidate> apply_confidence_filter(
         filtered.push_back(candidate);
     }
 
-    std::sort(filtered.begin(), filtered.end(),
-              [](const SegmentationCandidate& lhs,
-                 const SegmentationCandidate& rhs) {
-                  return lhs.score > rhs.score;
-              });
+    std::sort(
+        filtered.begin(), filtered.end(),
+        [](const SegmentationCandidate& lhs, const SegmentationCandidate& rhs) {
+            return lhs.score > rhs.score;
+        });
     return filtered;
 }
 
@@ -399,10 +400,8 @@ int main(int argc, char** argv) {
     const std::string model_path = argv[1];
     const std::string image_path = argv[2];
 
-    auto binding_result =
-        yolo::adapters::ultralytics::probe_segmentation_model(
-            ModelSpec{.path = model_path, .task = TaskKind::seg},
-            SessionOptions{});
+    auto binding_result = yolo::adapters::ultralytics::probe_segmentation_model(
+        ModelSpec{.path = model_path, .task = TaskKind::seg}, SessionOptions{});
     if (!binding_result.ok()) {
         return examples::print_error(binding_result.error);
     }
@@ -441,7 +440,8 @@ int main(int argc, char** argv) {
     }
 
     auto decode_spec_result =
-        yolo::detail::segmentation_decode_spec_from_binding(*binding_result.value);
+        yolo::detail::segmentation_decode_spec_from_binding(
+            *binding_result.value);
     if (!decode_spec_result.ok()) {
         return examples::print_error(decode_spec_result.error);
     }
@@ -455,9 +455,8 @@ int main(int argc, char** argv) {
     yolo::SegmentationOptions options{};
     const auto confidence_filtered = apply_confidence_filter(
         decoded_result.value->candidates, options.confidence_threshold);
-    const auto nms_kept = apply_class_aware_nms(confidence_filtered,
-                                                options.nms_iou_threshold,
-                                                options.max_detections);
+    const auto nms_kept = apply_class_aware_nms(
+        confidence_filtered, options.nms_iou_threshold, options.max_detections);
     const auto final_instances = yolo::detail::postprocess_segmentation(
         decoded_result.value->candidates, decoded_result.value->proto,
         preprocess_result.value->record, options, binding_result.value->model);
@@ -476,7 +475,9 @@ int main(int argc, char** argv) {
         preprocess_shape.push_back(static_cast<int>(dim.value.value_or(0)));
     }
 
-    json << "{\"task\":\"seg\",\"image\":\"" << escape_json(image_path)
+    const auto image_name =
+        std::filesystem::path(image_path).filename().string();
+    json << "{\"task\":\"seg\",\"image\":\"" << escape_json(image_name)
          << "\",\"preprocess\":{\"tensor_shape\":";
     write_int_list(json, preprocess_shape);
     json << ",\"tensor_values\":";
@@ -510,19 +511,18 @@ int main(int argc, char** argv) {
     }
     json << "],\"decoded\":{\"candidate_count\":"
          << decoded_result.value->candidates.size() << ",\"candidates\":";
-    write_candidate_list(
-        json, snapshot_candidates(decoded_result.value->candidates,
-                                  preprocess_result.value->record));
+    write_candidate_list(json,
+                         snapshot_candidates(decoded_result.value->candidates,
+                                             preprocess_result.value->record));
     json << "},\"confidence_filtered\":{\"candidate_count\":"
          << confidence_filtered.size() << ",\"candidates\":";
-    write_candidate_list(
-        json,
-        snapshot_candidates(confidence_filtered, preprocess_result.value->record));
+    write_candidate_list(json,
+                         snapshot_candidates(confidence_filtered,
+                                             preprocess_result.value->record));
     json << "},\"nms\":{\"candidate_count\":" << nms_kept.size()
          << ",\"candidates\":";
-    write_candidate_list(json,
-                         snapshot_candidates(nms_kept,
-                                             preprocess_result.value->record));
+    write_candidate_list(
+        json, snapshot_candidates(nms_kept, preprocess_result.value->record));
     json << "},\"mask_projection\":{";
     json << "\"proto_size\":";
     write_size(json, decoded_result.value->proto.size);
@@ -537,8 +537,8 @@ int main(int argc, char** argv) {
         const auto rle = encode_rle(instance.mask.data);
         const std::size_t area = static_cast<std::size_t>(std::accumulate(
             instance.mask.data.begin(), instance.mask.data.end(), 0U));
-        json << "{\"class_id\":" << instance.class_id << ",\"score\":"
-             << instance.score << ",\"bbox_xywh\":";
+        json << "{\"class_id\":" << instance.class_id
+             << ",\"score\":" << instance.score << ",\"bbox_xywh\":";
         write_bbox_xywh(json, instance.bbox);
         json << ",\"mask\":{\"size\":";
         write_size(json, instance.mask.size);

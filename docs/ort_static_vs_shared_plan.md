@@ -23,7 +23,7 @@ The static package path was narrowed down with four consistent findings:
 - Its `INTERFACE_LINK_LIBRARIES` included `ONNX::onnx` and
   `ONNX::onnx_proto`.
 - A minimal probe in
-  [`tools/ort_link_probe/CMakeLists.txt`](../tools/ort_link_probe/CMakeLists.txt)
+  [`tools/dev/ort_link_probe/CMakeLists.txt`](../tools/dev/ort_link_probe/CMakeLists.txt)
   still linked `libonnx.a` and `libonnx_proto.a` when it only requested
   `onnxruntime::onnxruntime`.
 - Runtime failures showed repeated duplicate-schema-registration errors such as
@@ -127,13 +127,15 @@ rg -n 'add_library\\(onnxruntime::onnxruntime|IMPORTED_LOCATION|IMPORTED_LINK_DE
 Rebuild the standalone probe if you need to re-check linkage shape:
 
 ```bash
-cmake -S tools/ort_link_probe -B /tmp/ort_link_probe_shared_build -G Ninja \
+PROBE_BUILD_DIR=build/ort_link_probe_shared
+
+cmake -S tools/dev/ort_link_probe -B "$PROBE_BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
   -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
   -DCMAKE_CXX_FLAGS="-isystem $VCPKG_ROOT/installed/x64-linux-dynamic/include"
 
-cmake --build /tmp/ort_link_probe_shared_build --verbose -j1
+cmake --build "$PROBE_BUILD_DIR" --verbose -j1
 ```
 
 In the verbose probe link line, the expected good shape is a direct link to
@@ -142,8 +144,8 @@ In the verbose probe link line, the expected good shape is a direct link to
 You can double-check runtime dependencies with:
 
 ```bash
-ldd /tmp/ort_link_probe_shared_build/ort_link_probe
-objdump -p /tmp/ort_link_probe_shared_build/ort_link_probe | rg 'NEEDED|RUNPATH|RPATH'
+ldd "$PROBE_BUILD_DIR/ort_link_probe"
+objdump -p "$PROBE_BUILD_DIR/ort_link_probe" | rg 'NEEDED|RUNPATH|RPATH'
 ```
 
 ## What This Document Is For

@@ -31,6 +31,8 @@ add_library(yolo_cpp
   src/adapters/ultralytics_detect.cpp
   src/adapters/ultralytics_classify.cpp
   src/adapters/ultralytics_seg.cpp
+  src/adapters/ultralytics_pose.cpp
+  src/adapters/ultralytics_obb.cpp
 )
 
 target_compile_features(yolo_cpp PUBLIC cxx_std_20)
@@ -125,32 +127,7 @@ if(YOLO_CPP_BUILD_EXAMPLES)
 endif()
 
 if(YOLO_CPP_BUILD_DIAGNOSTICS AND onnxruntime_FOUND)
-  add_executable(ort_session_probe tools/ort_session_probe.cpp)
-  target_compile_features(ort_session_probe PRIVATE cxx_std_20)
-  target_link_libraries(ort_session_probe PRIVATE onnxruntime::onnxruntime)
-  yolo_cpp_apply_ort_include_compat(ort_session_probe)
-
-  add_executable(onnx_session_probe tools/onnx_session_probe.cpp)
-  target_compile_features(onnx_session_probe PRIVATE cxx_std_20)
-  target_link_libraries(onnx_session_probe PRIVATE yolo_cpp)
-
-  add_executable(yolo_cpp_parity_dump tools/yolo_cpp_parity_dump.cpp)
-  target_compile_features(yolo_cpp_parity_dump PRIVATE cxx_std_20)
-  target_link_libraries(yolo_cpp_parity_dump PRIVATE yolo_cpp)
-  target_include_directories(
-    yolo_cpp_parity_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples
-  )
-
-  add_executable(
-    yolo_cpp_segmentation_debug_dump
-    tools/yolo_cpp_segmentation_debug_dump.cpp
-  )
-  target_compile_features(yolo_cpp_segmentation_debug_dump PRIVATE cxx_std_20)
-  target_link_libraries(yolo_cpp_segmentation_debug_dump PRIVATE yolo_cpp)
-  target_include_directories(
-    yolo_cpp_segmentation_debug_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples
-  )
-
+  add_subdirectory(tools)
 endif()
 
 if(BUILD_TESTING)

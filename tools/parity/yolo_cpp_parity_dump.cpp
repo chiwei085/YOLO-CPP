@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <numeric>
@@ -76,6 +77,12 @@ std::optional<yolo::TaskKind> parse_task(std::string_view value) {
     if (value == "seg") {
         return yolo::TaskKind::seg;
     }
+    if (value == "pose") {
+        return yolo::TaskKind::pose;
+    }
+    if (value == "obb") {
+        return yolo::TaskKind::obb;
+    }
 
     return std::nullopt;
 }
@@ -88,8 +95,8 @@ void write_detection_result(std::ostream& stream,
             stream << ',';
         }
         const auto& detection = result.detections[i];
-        stream << "{\"class_id\":" << detection.class_id << ",\"score\":"
-               << detection.score << ",\"bbox\":";
+        stream << "{\"class_id\":" << detection.class_id
+               << ",\"score\":" << detection.score << ",\"bbox\":";
         write_bbox(stream, detection.bbox);
         stream << '}';
     }
@@ -104,8 +111,8 @@ void write_classification_result(std::ostream& stream,
             stream << ',';
         }
         const auto& classification = result.classes[i];
-        stream << "{\"class_id\":" << classification.class_id << ",\"score\":"
-               << classification.score << '}';
+        stream << "{\"class_id\":" << classification.class_id
+               << ",\"score\":" << classification.score << '}';
     }
     stream << "],\"scores\":[";
     for (std::size_t i = 0; i < result.scores.size(); ++i) {
@@ -129,8 +136,8 @@ void write_segmentation_result(std::ostream& stream,
         const std::size_t area = static_cast<std::size_t>(std::accumulate(
             instance.mask.data.begin(), instance.mask.data.end(), 0U));
 
-        stream << "{\"class_id\":" << instance.class_id << ",\"score\":"
-               << instance.score << ",\"bbox\":";
+        stream << "{\"class_id\":" << instance.class_id
+               << ",\"score\":" << instance.score << ",\"bbox\":";
         write_bbox(stream, instance.bbox);
         stream << ",\"mask\":{\"size\":[" << instance.mask.size.width << ','
                << instance.mask.size.height << "],\"area\":" << area
@@ -146,13 +153,76 @@ void write_segmentation_result(std::ostream& stream,
     stream << ']';
 }
 
+void write_point(std::ostream& stream, const yolo::Point2f& point) {
+    stream << '[' << point.x << ',' << point.y << ']';
+}
+
+void write_pose_result(std::ostream& stream, const yolo::PoseResult& result) {
+    stream << "\"poses\":[";
+    for (std::size_t i = 0; i < result.poses.size(); ++i) {
+        if (i > 0) {
+            stream << ',';
+        }
+        const auto& pose = result.poses[i];
+        stream << "{\"class_id\":" << pose.class_id
+               << ",\"score\":" << pose.score << ",\"bbox\":";
+        write_bbox(stream, pose.bbox);
+        stream << ",\"keypoints\":[";
+        for (std::size_t keypoint_index = 0;
+             keypoint_index < pose.keypoints.size(); ++keypoint_index) {
+            if (keypoint_index > 0) {
+                stream << ',';
+            }
+            const auto& keypoint = pose.keypoints[keypoint_index];
+            stream << "{\"point\":";
+            write_point(stream, keypoint.point);
+            stream << ",\"score\":" << keypoint.score
+                   << ",\"visible\":" << (keypoint.visible ? "true" : "false")
+                   << '}';
+        }
+        stream << "]}";
+    }
+    stream << ']';
+}
+
+void write_size(std::ostream& stream, const yolo::Size2f& size) {
+    stream << '[' << size.width << ',' << size.height << ']';
+}
+
+void write_obb_result(std::ostream& stream, const yolo::ObbResult& result) {
+    stream << "\"boxes\":[";
+    for (std::size_t i = 0; i < result.boxes.size(); ++i) {
+        if (i > 0) {
+            stream << ',';
+        }
+        const auto& detection = result.boxes[i];
+        stream << "{\"class_id\":" << detection.class_id
+               << ",\"score\":" << detection.score << ",\"center\":";
+        write_point(stream, detection.box.center);
+        stream << ",\"size\":";
+        write_size(stream, detection.box.size);
+        stream << ",\"angle_radians\":" << detection.box.angle_radians
+               << ",\"corners\":[";
+        const auto corners = detection.box.corners();
+        for (std::size_t corner_index = 0; corner_index < corners.size();
+             ++corner_index) {
+            if (corner_index > 0) {
+                stream << ',';
+            }
+            write_point(stream, corners[corner_index]);
+        }
+        stream << "]}";
+    }
+    stream << ']';
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 4) {
-        std::cerr
-            << "usage: yolo_cpp_parity_dump <detect|classify|seg> <model.onnx>"
-            << " <image1.ppm> [imageN.ppm...]\n";
+        std::cerr << "usage: yolo_cpp_parity_dump "
+                     "<detect|classify|seg|pose|obb> <model.onnx>"
+                  << " <image1.ppm> [imageN.ppm...]\n";
         return EXIT_FAILURE;
     }
 
@@ -184,7 +254,9 @@ int main(int argc, char** argv) {
             return examples::print_error(image_result.error);
         }
 
-        json << "{\"image\":\"" << escape_json(argv[index]) << "\",";
+        const auto image_name =
+            std::filesystem::path(argv[index]).filename().string();
+        json << "{\"image\":\"" << escape_json(image_name) << "\",";
         if (*task == yolo::TaskKind::detect) {
             const auto result = pipeline->detect(image_result.value->view());
             if (!result.ok()) {
@@ -199,12 +271,28 @@ int main(int argc, char** argv) {
             }
             write_classification_result(json, result);
         }
-        else {
+        else if (*task == yolo::TaskKind::seg) {
             const auto result = pipeline->segment(image_result.value->view());
             if (!result.ok()) {
                 return examples::print_error(result.error);
             }
             write_segmentation_result(json, result);
+        }
+        else if (*task == yolo::TaskKind::pose) {
+            const auto result =
+                pipeline->estimate_pose(image_result.value->view());
+            if (!result.ok()) {
+                return examples::print_error(result.error);
+            }
+            write_pose_result(json, result);
+        }
+        else {
+            const auto result =
+                pipeline->detect_obb(image_result.value->view());
+            if (!result.ok()) {
+                return examples::print_error(result.error);
+            }
+            write_obb_result(json, result);
         }
         json << '}';
     }
