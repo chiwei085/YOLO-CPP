@@ -209,4 +209,4 @@ uv run python tests/parity/run_obb_debug.py
 
 More detail lives in [`tests/parity/README.md`](tests/parity/README.md),
 [`tools/README.md`](tools/README.md), and
-[`docs/vcpkg_overlay_onnx_fix.md`](docs/vcpkg_overlay_onnx_fix.md).
+[`docs/README.md`](docs/README.md).
